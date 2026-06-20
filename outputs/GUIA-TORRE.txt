@@ -1,0 +1,64 @@
+INTEGRACAO COM A TORRE DE CONTROLE
+
+O que foi confirmado
+---------------------
+O login da Torre usa estes campos:
+- usuario
+- senha
+
+Como configurar no Netlify
+--------------------------
+1. Abra o projeto no Netlify.
+2. Entre em Project configuration > Environment variables.
+3. Crie ou confira estas variaveis:
+
+   TAZ_ADMIN_KEY
+   TORRE_USER
+   TORRE_PASSWORD
+
+4. Em TORRE_USER, coloque o usuario da Torre.
+5. Em TORRE_PASSWORD, coloque a senha da Torre.
+6. Faca um novo deploy.
+
+Como consultar no dashboard
+---------------------------
+1. Abra:
+   https://tazmotoristas.netlify.app/dashboard_taz_integrado.html
+2. Digite o codigo administrativo no campo Atualizar dados.
+3. Clique em Torre online.
+4. O dashboard vai abrir a aba Torre com:
+   - total de veiculos
+   - rodando
+   - parados
+   - KM hoje
+   - KM/L hoje
+   - alertas
+   - tabela por veiculo
+
+Conexao Torre x Performance
+---------------------------
+O dashboard relaciona o nome curto da Torre com o nome completo usado na
+Performance:
+
+AHQ3100  | VINICIUS         | VINICIUS DE CONTO
+SRO5A91  | CLAUDIO          | CLAUDIO MARCIO BORGES FERREIRA
+SRM1E04  | WANDERSON        | WANDERSON PINHEIRO
+SOW3B13  | ELENILSON        | ELENILSON AZEVEDO DE MOURA
+SRH1E01  | DAMIAO           | ERNESTY NASCIMENTO TAVARES BRUM
+TUB2I41  | REINAN           | REINAN PRIORI
+TTL7A43  | JUCELINO         | JUSCELINO REIS SANTOS
+RX06B17  | VENDIDO          | VENDIDO
+SRJ7G60  | ADRIANO          | ADRIANO PONTE CUNHA
+SRC9D09  | ALEXANDRE FERRAZ | ALEXANDRE FERRAZ DA PAIXAO
+SRY7I24  | WEVERTON         | WEVERTON SILVA DOS SANTOS
+TUL2B13  | EZEQUIEL         | EZEQUIEL DA FONSSECA
+
+Na aba Torre, clique no nome da coluna Performance para abrir a aba
+Performance ja filtrada naquele motorista.
+
+Seguranca
+---------
+Nao coloque usuario e senha da Torre em nenhum arquivo do projeto.
+Esses dados devem ficar somente nas variaveis do Netlify.
+
+Se a senha da Torre foi compartilhada em conversas ou prints, o ideal e trocar a senha depois da integracao ficar pronta.
