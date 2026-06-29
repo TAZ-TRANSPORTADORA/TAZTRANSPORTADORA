@@ -1,0 +1,99 @@
+LOGIN E SENHAS DO APP TAZ
+
+PROJETO SUPABASE
+URL:
+https://txwsqgojfaiivpffgclw.supabase.co
+
+O app usa apenas a Publishable key. Nenhuma Secret key deve ser colocada no
+GitHub, no Netlify ou enviada aos usuarios.
+
+1. CONFIGURAR URLS
+No Supabase:
+- Authentication > URL Configuration
+- Site URL: https://tazmotoristas.netlify.app
+- Redirect URLs: https://tazmotoristas.netlify.app/**
+
+2. CRIAR USUARIOS
+No Supabase:
+- Authentication > Users > Add user > Create new user
+- Informe e-mail e senha.
+- Ative Auto Confirm User quando essa opcao estiver disponivel.
+
+3. DEFINIR PERFIS
+Cada usuario possui um campo de metadados chamado role.
+
+Administrador:
+{
+  "role": "admin",
+  "display_name": "Nome do administrador",
+  "companies": ["*"]
+}
+
+Usuario do dashboard por empresa:
+{
+  "role": "empresa",
+  "display_name": "Pratazil",
+  "companies": ["PRATAZIL"]
+}
+
+Usuario do dashboard com mais de uma empresa:
+{
+  "role": "empresa",
+  "display_name": "Grupo Operacional",
+  "companies": ["PRATAZIL", "RILUCA"]
+}
+
+Motorista:
+{
+  "role": "motorista",
+  "display_name": "Nome do motorista",
+  "driver_name": "NOME DO MOTORISTA NO CADASTRO"
+}
+
+O campo driver_name deve ser igual ao nome cadastrado em Cadastros > Motoristas.
+Quando o usuario for motorista, o app preenche e bloqueia o campo Nome do motorista
+automaticamente com esse valor. Administradores continuam podendo escolher qualquer
+motorista no formulario.
+
+Para alterar:
+- Abra Authentication > Users.
+- Clique no usuario.
+- Localize User metadata ou Raw user meta data.
+- Edite o JSON, salve e solicite que o usuario saia e entre novamente.
+
+Se role nao estiver preenchido, o app considera o usuario como motorista.
+
+4. PERMISSOES
+Motorista:
+- Pode entrar no app.
+- Pode registrar e sincronizar viagens.
+- Pode consultar os cadastros ativos para preencher o formulario.
+
+Administrador:
+- Possui todas as permissoes do motorista.
+- Pode criar, editar, ativar e desativar cadastros.
+- Pode acessar Base online e baixar o Excel consolidado.
+- Pode acessar o dashboard e visualizar todas as empresas.
+
+Empresa:
+- Pode acessar o dashboard.
+- Visualiza somente as empresas listadas em companies.
+- A Base online e a Scania/rFMS ja chegam filtradas pelas funcoes Netlify.
+
+5. RECUPERACAO DE SENHA
+- Na tela inicial, digite o e-mail.
+- Toque em Esqueci minha senha.
+- O Supabase envia um e-mail de recuperacao.
+
+6. PUBLICACAO
+Depois de enviar os arquivos ao GitHub:
+- Faca um novo deploy no Netlify.
+- Limpe o cache do navegador ou atualize o app instalado.
+- A tela de login aparecera antes do formulario.
+
+7. SEGURANCA
+- As funcoes de viagens e cadastros validam o token Supabase.
+- Uma viagem guarda o ID e e-mail do usuario que realizou o envio.
+- Somente role=admin pode alterar cadastros.
+- O dashboard valida o login Supabase e filtra os dados no servidor.
+- TAZ_ADMIN_KEY continua existindo como acesso administrativo de emergencia.

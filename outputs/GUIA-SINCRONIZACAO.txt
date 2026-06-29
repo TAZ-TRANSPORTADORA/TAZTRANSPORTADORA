@@ -1,0 +1,136 @@
+SINCRONIZACAO AUTOMATICA: NETLIFY + POWER AUTOMATE + EXCEL
+
+ARQUITETURA
+App TAZ -> Funcao Netlify -> Power Automate -> Excel no OneDrive
+
+ENDERECO OFICIAL
+https://taztransportadora.netlify.app/
+
+ROTA DE SINCRONIZACAO
+https://taztransportadora.netlify.app/api/sync-excel
+
+1. PREPARAR O EXCEL
+- Mantenha Consolidado_TAZ_integrado.xlsx no OneDrive corporativo.
+- Abra o arquivo no Excel.
+- Na aba APP_VIAGENS, selecione as colunas e transforme o intervalo em Tabela.
+- Nomeie a tabela como tbAppViagens.
+- Na aba APP_ABASTECIMENTOS, transforme o intervalo em Tabela.
+- Nomeie a tabela como tbAppAbastecimentos.
+
+2. CRIAR O FLUXO NO POWER AUTOMATE
+- Crie um fluxo automatizado na nuvem.
+- Use o gatilho "Quando uma solicitação HTTP for recebida".
+- Cole o esquema JSON fornecido no final deste arquivo.
+- Adicione "Adicionar uma linha em uma tabela" do Excel Online (Business).
+- Escolha o arquivo no OneDrive e a tabela tbAppViagens.
+- Mapeie os dados de tripRow para as colunas da viagem.
+- Adicione "Aplicar a cada" usando fuelRows.
+- Dentro dele, adicione uma linha na tabela tbAppAbastecimentos.
+- Dentro do loop, mapeie os campos do item atual para as colunas.
+- Salve o fluxo e copie a URL HTTP gerada.
+
+3. CONFIGURAR O NETLIFY
+- O projeto deve ser implantado com netlify.toml e a pasta netlify/functions.
+- No painel do Netlify, abra Project configuration > Environment variables.
+- Crie POWER_AUTOMATE_URL e cole a URL do fluxo.
+- Escopo recomendado: Functions.
+- Faca um novo deploy.
+
+Teste depois do deploy:
+- Abra https://taztransportadora.netlify.app/api/sync-excel no navegador.
+- A resposta esperada para essa abertura e "Metodo nao permitido", pois a rota
+  aceita somente envios POST. Isso confirma que a funcao esta publicada.
+- Se abrir a pagina do app ou retornar pagina nao encontrada, a funcao nao foi
+  incluida no deploy.
+
+Observacao:
+Arrastar somente a pasta outputs na tela do Netlify nao publica a funcao. Para
+usar sincronizacao automatica, conecte o projeto a um repositorio Git ou use a
+Netlify CLI apontando para esta pasta completa.
+
+4. FUNCIONAMENTO
+- Ao salvar, o registro continua guardado no aparelho.
+- Com internet, o app envia automaticamente ao Excel.
+- Sem internet ou em caso de falha, fica como pendente e tenta novamente.
+- O ID da viagem permite ao fluxo evitar duplicidade. Recomenda-se que o fluxo
+  verifique se o ID ja existe antes de adicionar uma linha.
+
+ESQUEMA JSON DO GATILHO
+{
+  "type": "object",
+  "properties": {
+    "source": { "type": "string" },
+    "sentAt": { "type": "string" },
+    "record": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "tripDate": { "type": "string" },
+        "horsePlate": { "type": "string" },
+        "trailerPlate": { "type": "string" },
+        "driverName": { "type": "string" },
+        "companyName": { "type": "string" },
+        "vehicleCategory": { "type": "string" },
+        "vehicleCash": { "type": "string" },
+        "startKm": { "type": "string" },
+        "finalKm": { "type": "string" },
+        "loadAmount": { "type": "string" },
+        "loadInvoiceKey": { "type": "string" },
+        "fuels": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "number": { "type": "integer" },
+              "km": { "type": "string" },
+              "liters": { "type": "string" },
+              "value": { "type": "string" },
+              "invoiceKey": { "type": "string" }
+            }
+          }
+        }
+      },
+      "required": ["id", "driverName", "horsePlate", "fuels"]
+    },
+    "tripRow": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "dataHora": { "type": "string" },
+        "data": { "type": "string" },
+        "motorista": { "type": "string" },
+        "empresa": { "type": "string" },
+        "placaCavalo": { "type": "string" },
+        "placaCarreta": { "type": "string" },
+        "categoria": { "type": "string" },
+        "kmInicial": { "type": "number" },
+        "kmFinal": { "type": "number" },
+        "kmRodado": { "type": "number" },
+        "caixinha": { "type": "number" },
+        "quantidadeCarregada": { "type": "number" },
+        "chaveNfCarregamento": { "type": "string" }
+      }
+    },
+    "fuelRows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "viagemId": { "type": "string" },
+          "dataHora": { "type": "string" },
+          "data": { "type": "string" },
+          "motorista": { "type": "string" },
+          "empresa": { "type": "string" },
+          "placaCavalo": { "type": "string" },
+          "km": { "type": "number" },
+          "litros": { "type": "number" },
+          "valorDiesel": { "type": "number" },
+          "chaveNf": { "type": "string" }
+        }
+      }
+    }
+  },
+  "required": ["source", "record", "tripRow", "fuelRows"]
+}
