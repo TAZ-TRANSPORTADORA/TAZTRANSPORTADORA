@@ -1,4 +1,4 @@
-const SUPABASE_URL = "https://txwsqgojfaiivpffgclw.supabase.co";
+﻿const SUPABASE_URL = "https://txwsqgojfaiivpffgclw.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_GiOI31fiyA37jAGoOJyKuA_bovc7GwN";
 const supabaseClient = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
@@ -455,14 +455,16 @@ function resetRegistryForm() {
   registryNameLabel.textContent = config.label;
   registryName.placeholder = config.placeholder;
   const isDriver = activeRegistryType === "drivers";
-  registryCompanyField.hidden = !isDriver;
-  registryCategoryField.hidden = !isDriver;
+  const isHorse = activeRegistryType === "horses";
+  const hasCompanyCategory = activeRegistryType !== "trailers";
+  registryCompanyField.hidden = !hasCompanyCategory;
+  registryCategoryField.hidden = !hasCompanyCategory;
   registrySalaryField.hidden = !isDriver;
   registryDailyRateField.hidden = !isDriver;
   registryCommissionField.hidden = !isDriver;
-  registryReferenceBadField.hidden = !isDriver;
-  registryReferenceGoodField.hidden = !isDriver;
-  registryReferenceExcellentField.hidden = !isDriver;
+  registryReferenceBadField.hidden = !isHorse;
+  registryReferenceGoodField.hidden = !isHorse;
+  registryReferenceExcellentField.hidden = !isHorse;
 }
 
 function renderRegistryList() {
@@ -481,7 +483,7 @@ function renderRegistryList() {
       const costs = activeRegistryType === "drivers"
         ? `Salário ${money(item.monthlySalary)} | Diária ${money(item.dailyRate)} | Comissão ${money(item.tripCommission)}`
         : "";
-      const reference = activeRegistryType === "drivers"
+      const reference = activeRegistryType === "horses"
         ? [
             kmReference(item.ruim) && `Ruim ${kmReference(item.ruim)}`,
             kmReference(item.regular) && `Bom ${kmReference(item.regular)}`,
@@ -575,18 +577,21 @@ function tripDistanceText(record) {
 }
 
 function percentText(value) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${number.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 1 })}%`;
 }
 
 function kmText(value) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${number.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} km`;
 }
 
 function kmhText(value) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${number.toLocaleString("pt-BR", { maximumFractionDigits: 0 })} km/h`;
@@ -594,6 +599,82 @@ function kmhText(value) {
 
 function vehicleTelemetry(record) {
   return record?.torreVehicle || null;
+}
+
+function vehicleTripHistory(record) {
+  return record?.torreTrip || null;
+}
+
+function plateKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
+function isDieselS10Fuel(fuel) {
+  return String(fuel?.fuelType || "DIESEL S10").toUpperCase().includes("DIESEL");
+}
+
+function performanceFuelEntries(record) {
+  const horse = plateKey(record?.horsePlate);
+  return (record?.fuels || []).filter((fuel) => {
+    const supplied = plateKey(fuel.vehiclePlate || record.horsePlate);
+    return isDieselS10Fuel(fuel) && (!horse || !supplied || supplied === horse);
+  });
+}
+
+function driverTripKm(record) {
+  const start = Number(record?.startKm || 0);
+  const final = Number(record?.finalKm || 0);
+  if (!Number.isFinite(start) || !Number.isFinite(final) || !start || !final || final < start) return null;
+  return final - start;
+}
+
+function driverTripLiters(record) {
+  const total = performanceFuelEntries(record).reduce((sum, fuel) => sum + Number(fuel.liters || 0), 0);
+  return total > 0 ? total : null;
+}
+
+function driverTripAverage(record) {
+  const km = driverTripKm(record);
+  const liters = driverTripLiters(record);
+  return km !== null && liters ? km / liters : null;
+}
+
+function numberDiffText(value, suffix = "") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  const sign = number > 0 ? "+" : "";
+  return `${sign}${number.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}${suffix}`;
+}
+
+function decimalText(value, suffix = "") {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${number.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${suffix}`;
+}
+
+function tripHistoryText(record) {
+  const history = vehicleTripHistory(record);
+  if (!history) return "Comparativo da viagem: não coletado.";
+  if (!history.available) return `Comparativo da viagem: ${history.reason || "sem histórico suficiente."}`;
+  const driverKm = driverTripKm(record);
+  const driverLiters = driverTripLiters(record);
+  const driverAverage = driverTripAverage(record);
+  return `Comparativo Motorista x Torre:
+KM motorista: ${kmText(driverKm)}
+KM Torre: ${kmText(history.km)}
+Diferença KM: ${driverKm !== null && Number.isFinite(Number(history.km)) ? numberDiffText(Number(history.km) - driverKm, " km") : "-"}
+Litros motorista: ${driverLiters ? numberText(driverLiters, " L") : "-"}
+Litros Torre: ${history.liters ? numberText(history.liters, " L") : "-"}
+Média motorista: ${driverAverage ? decimalText(driverAverage, " km/L") : "-"}
+Média Torre: ${history.kmPerLiter ? decimalText(history.kmPerLiter, " km/L") : "-"}
+Vmax na viagem: ${kmhText(history.vmaxKmh)}
+Acima de 100 km/h: ${percentText(history.pctAbove100)}
+Diesel final Torre: ${percentText(history.dieselEndPct)}
+Arla final Torre: ${percentText(history.arlaEndPct)}`;
 }
 
 function vehicleTelemetryText(record) {
@@ -661,7 +742,9 @@ ${loadWhatsAppSummary(record)}
 Abastecimentos:
 ${fuelWhatsAppSummary(record)}
 
-${vehicleTelemetryText(record)}`;
+${vehicleTelemetryText(record)}
+
+${tripHistoryText(record)}`;
 }
 
 function cleanPdfText(value) {
@@ -702,7 +785,7 @@ function detailRowsForPdf(record) {
     type: "Despesa",
     value: `- ${money(fuel.value)}`,
     owner: "Empresa",
-    notes: fuel.invoiceKey ? `NF ${fuel.invoiceKey}` : "-",
+    notes: invoiceDisplay(fuel.invoiceKey),
   }));
 
   if (Number(record.freightValue || 0)) {
@@ -723,7 +806,7 @@ function detailRowsForPdf(record) {
       type: "Carga",
       value: "-",
       owner: "Empresa",
-      notes: load.invoiceKey ? `NF ${load.invoiceKey}` : "-",
+      notes: invoiceDisplay(load.invoiceKey),
     });
   });
 
@@ -735,17 +818,6 @@ function detailRowsForPdf(record) {
       value: `- ${money(record.travelExpenses)}`,
       owner: "Motorista",
       notes: receiptHasFile(record.travelExpenseReceipt) ? "Comprovante anexado" : "-",
-    });
-  }
-
-  if (Number(record.vehicleCash || 0)) {
-    rows.push({
-      date: formatTripDate(record.tripEndDate || record.tripDate),
-      description: "CAIXINHA DO VEICULO",
-      type: "Despesa",
-      value: `- ${money(record.vehicleCash)}`,
-      owner: "Motorista",
-      notes: "-",
     });
   }
 
@@ -796,13 +868,20 @@ function drawPdfText(ctx, text, x, y, maxWidth, lineHeight = 13) {
   return lines.length * lineHeight;
 }
 
+const PDF_PAGE_WIDTH = 841.89;
+const PDF_PAGE_HEIGHT = 595.28;
+const PDF_MARGIN = 32;
+const PDF_CONTENT_WIDTH = PDF_PAGE_WIDTH - PDF_MARGIN * 2;
+
 function newPdfCanvasPage() {
   const scale = 2;
-  const width = 595.28;
-  const height = 841.89;
+  const width = PDF_PAGE_WIDTH;
+  const height = PDF_PAGE_HEIGHT;
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(width * scale);
   canvas.height = Math.round(height * scale);
+  canvas.pdfWidth = width;
+  canvas.pdfHeight = height;
   const ctx = canvas.getContext("2d");
   ctx.scale(scale, scale);
   ctx.fillStyle = "#ffffff";
@@ -813,33 +892,35 @@ function newPdfCanvasPage() {
 function drawPdfHeader(page, logoImage) {
   const { ctx, width } = page;
   if (logoImage) {
-    ctx.drawImage(logoImage, 40, 24, 125, 43);
+    ctx.drawImage(logoImage, PDF_MARGIN, 18, 150, 80);
   } else {
     ctx.fillStyle = "#004b8d";
-    ctx.fillRect(40, 24, 125, 43);
+    ctx.fillRect(PDF_MARGIN, 18, 150, 80);
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 24px Arial";
-    ctx.fillText("TAZ", 75, 54);
+    ctx.font = "bold 30px Arial";
+    ctx.fillText("TAZ", PDF_MARGIN + 50, 62);
   }
   ctx.fillStyle = "#111111";
-  ctx.font = "24px Arial";
-  ctx.fillText("EXTRATO DE VIAGEM", 180, 55);
+  ctx.font = "30px Arial";
+  ctx.fillText("EXTRATO DE VIAGEM", 210, 58);
   ctx.font = "10px Arial";
-  ctx.fillText(`Gerado em: ${new Date().toLocaleString("pt-BR")}`, width - 185, 55);
+  ctx.textAlign = "right";
+  ctx.fillText(`Gerado em: ${new Date().toLocaleString("pt-BR")}`, width - PDF_MARGIN, 58);
+  ctx.textAlign = "left";
   ctx.strokeStyle = "#dddddd";
   ctx.beginPath();
-  ctx.moveTo(0, 84);
-  ctx.lineTo(width, 84);
+  ctx.moveTo(0, 104);
+  ctx.lineTo(width, 104);
   ctx.stroke();
 }
 
 function drawPdfSummary(page, record) {
   const { ctx } = page;
   const telemetry = vehicleTelemetry(record);
-  const x = 40;
-  const y = 105;
-  const width = 515;
-  const height = 360;
+  const x = PDF_MARGIN;
+  const y = 118;
+  const width = PDF_CONTENT_WIDTH;
+  const height = 188;
   ctx.fillStyle = "#ffffff";
   ctx.strokeStyle = "#d5dbe3";
   drawRoundRect(ctx, x, y, width, height, 10);
@@ -852,61 +933,181 @@ function drawPdfSummary(page, record) {
   ctx.font = "bold 14px Arial";
   ctx.fillText("Resumo", x + 14, y + 18);
 
-  const start = 142;
-  const leftX = x + 14;
-  const rightX = x + 258;
-  const line = 18;
-  const left = [
-    `Viagem: ${String(record.id || "-").slice(0, 8)}`,
-    `Equipamento: ${record.horsePlate || "-"}`,
-    `Equipamentos atrelados: ${record.trailerPlate || "-"}`,
-    `Empresa: ${record.companyName || "-"}`,
-    `Motorista: ${record.driverName || "-"}`,
-    `Período: ${formatTripDate(record.tripDate)} a ${formatTripDate(record.tripEndDate)}`,
-    `Consumo médio: ${tripAverageKm(record)}`,
-    `Combustível consumido (L): ${numberText(sumFuels(record, "liters"))}`,
-    `KM Final: ${numberText(record.finalKm)}`,
-    `Distância Percorrida: ${tripDistanceText(record)}`,
-    `Frete: ${money(record.freightValue)}`,
-    `Saldo: ${money(tripBalance(record))}`,
-    `Observações: -`,
+  const columns = [
+    {
+      title: "Viagem",
+      rows: [
+        `Viagem: ${String(record.id || "-").slice(0, 8)}`,
+        `Tração: ${record.horsePlate || "-"}`,
+        `Implemento: ${record.trailerPlate || "-"}`,
+        `Empresa: ${record.companyName || "-"}`,
+        `Motorista: ${record.driverName || "-"}`,
+        `Período: ${formatTripDate(record.tripDate)} a ${formatTripDate(record.tripEndDate)}`,
+      ],
+    },
+    {
+      title: "Quilometragem",
+      rows: [
+        `Data de início: ${formatTripDate(record.tripDate)}`,
+        `Data de término: ${formatTripDate(record.tripEndDate)}`,
+        `Duração (dias): ${record.dailyCount || tripDays(record.tripDate, record.tripEndDate) || "-"}`,
+        `KM Inicial: ${numberText(record.startKm)}`,
+        `KM Final: ${numberText(record.finalKm)}`,
+        `Distância: ${tripDistanceText(record)}`,
+      ],
+    },
+    {
+      title: "Financeiro / Carga",
+      rows: [
+        `Consumo médio: ${tripAverageKm(record)}`,
+        `Combustível (L): ${numberText(sumFuels(record, "liters"))}`,
+        `Frete: ${money(record.freightValue)}`,
+        `Despesas: ${money(record.travelExpenses)}`,
+        `Carga total: ${loadTotal(record) ? numberText(loadTotal(record)) : "-"}`,
+        `NF carga: ${loadInvoiceNumberSummary(record) || "-"}`,
+        `Saldo: ${money(tripBalance(record))}`,
+      ],
+    },
+    {
+      title: "Torre de Controle",
+      rows: [
+        `Torre KM: ${kmText(telemetry?.odometerKm)}`,
+        `Torre Diesel: ${percentText(telemetry?.dieselPct)}`,
+        `Torre Arla: ${percentText(telemetry?.arlaPct)}`,
+        `Velocidade atual: ${kmhText(telemetry?.speedKmh)}`,
+        `Vmax 24h: ${kmhText(telemetry?.vmax24Kmh)}`,
+      ],
+    },
   ];
-  const right = [
-    `Data de início: ${formatTripDate(record.tripDate)}`,
-    `Data de término: ${formatTripDate(record.tripEndDate)}`,
-    `Duração da viagem (dias): ${record.dailyCount || tripDays(record.tripDate, record.tripEndDate) || "-"}`,
-    `KM Inicial: ${numberText(record.startKm)}`,
-    `Despesas: ${money(record.travelExpenses)}`,
-    `Caixinha: ${money(record.vehicleCash)}`,
-    `Carga total: ${loadTotal(record) ? numberText(loadTotal(record)) : "-"}`,
-    `Carregamentos: ${normalizedLoadEntries(record).length || "-"}`,
-    `NF-e carga: ${loadInvoiceSummary(record) || "-"}`,
-    `Comissão: ${money(record.commissionValue)}`,
-    `Torre KM: ${kmText(telemetry?.odometerKm)}`,
-    `Torre Diesel: ${percentText(telemetry?.dieselPct)}`,
-    `Torre Arla: ${percentText(telemetry?.arlaPct)}`,
-    `Velocidade atual: ${kmhText(telemetry?.speedKmh)}`,
-    `Vmax 24h: ${kmhText(telemetry?.vmax24Kmh)}`,
+
+  const columnWidth = (width - 28) / columns.length;
+  columns.forEach((column, index) => {
+    const colX = x + 14 + index * columnWidth;
+    ctx.fillStyle = "#004b8d";
+    ctx.font = "bold 10px Arial";
+    ctx.fillText(column.title, colX, y + 48);
+    ctx.fillStyle = "#505050";
+    ctx.font = "9.5px Arial";
+    column.rows.forEach((item, rowIndex) => {
+      drawPdfText(ctx, item, colX, y + 66 + rowIndex * 16, columnWidth - 12, 10.5);
+    });
+  });
+  return y + height + 16;
+}
+
+function comparisonValueText(value, formatter) {
+  return value === null || value === undefined || value === "" ? "-" : formatter(value);
+}
+
+function hasMetric(value) {
+  return value !== null && value !== undefined && value !== "" && Number.isFinite(Number(value));
+}
+
+function pdfComparisonRows(record) {
+  const history = vehicleTripHistory(record);
+  const driverKm = driverTripKm(record);
+  const driverLiters = driverTripLiters(record);
+  const driverAverage = driverTripAverage(record);
+  if (!history?.available) {
+    return {
+      available: false,
+      reason: history?.reason || "Historico da Torre nao coletado para esta viagem.",
+      rows: [],
+    };
+  }
+  return {
+    available: true,
+    rows: [
+      [
+        "KM da viagem",
+        comparisonValueText(driverKm, kmText),
+        comparisonValueText(history.km, kmText),
+        driverKm !== null && hasMetric(history.km)
+          ? numberDiffText(Number(history.km) - driverKm, " km")
+          : "-",
+      ],
+      [
+        "Litros Diesel S10",
+        comparisonValueText(driverLiters, (value) => decimalText(value, " L")),
+        comparisonValueText(history.liters, (value) => decimalText(value, " L")),
+        driverLiters !== null && hasMetric(history.liters)
+          ? numberDiffText(Number(history.liters) - driverLiters, " L")
+          : "-",
+      ],
+      [
+        "Media KM/L",
+        comparisonValueText(driverAverage, (value) => decimalText(value, " km/L")),
+        comparisonValueText(history.kmPerLiter, (value) => decimalText(value, " km/L")),
+        driverAverage !== null && hasMetric(history.kmPerLiter)
+          ? numberDiffText(Number(history.kmPerLiter) - driverAverage, " km/L")
+          : "-",
+      ],
+      ["Velocidade maxima", "-", kmhText(history.vmaxKmh), "-"],
+      ["Acima de 100 km/h", "-", percentText(history.pctAbove100), "-"],
+      ["Diesel / Arla finais", "-", `${percentText(history.dieselEndPct)} / ${percentText(history.arlaEndPct)}`, "-"],
+    ],
+  };
+}
+
+function drawPdfTorreComparison(page, record, y) {
+  const { ctx } = page;
+  const x = PDF_MARGIN;
+  const width = PDF_CONTENT_WIDTH;
+  const comparison = pdfComparisonRows(record);
+  const rowHeight = 16;
+  const height = comparison.available ? 42 + comparison.rows.length * rowHeight : 92;
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#d5dbe3";
+  drawRoundRect(ctx, x, y, width, height, 10);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = "#eef6ff";
+  drawRoundRect(ctx, x, y, width, 24, 10);
+  ctx.fill();
+  ctx.fillStyle = "#004b8d";
+  ctx.font = "bold 13px Arial";
+  ctx.fillText("Comparativo Motorista x Torre", x + 14, y + 17);
+
+  if (!comparison.available) {
+    ctx.fillStyle = "#555555";
+    ctx.font = "10px Arial";
+    drawPdfText(ctx, comparison.reason, x + 14, y + 48, width - 28, 12);
+    return y + height + 20;
+  }
+
+  const columns = [
+    [x + 14, 220, "Indicador"],
+    [x + 250, 170, "Motorista"],
+    [x + 420, 170, "Torre"],
+    [x + 590, 170, "Diferença"],
   ];
-  ctx.fillStyle = "#505050";
-  ctx.font = "11px Arial";
-  left.forEach((item, index) => drawPdfText(ctx, item, leftX, start + index * line, 220, 12));
-  right.forEach((item, index) => drawPdfText(ctx, item, rightX, start + index * line, 230, 12));
+  ctx.fillStyle = "#333333";
+  ctx.font = "bold 9px Arial";
+  columns.forEach(([colX, , label]) => ctx.fillText(label, colX, y + 40));
+  ctx.font = "9px Arial";
+  comparison.rows.forEach((row, rowIndex) => {
+    const rowY = y + 58 + rowIndex * rowHeight;
+    row.forEach((value, colIndex) => {
+      const [colX, colWidth] = columns[colIndex];
+      drawPdfText(ctx, value, colX, rowY, colWidth - 6, 10);
+    });
+  });
+  return y + height + 20;
 }
 
 function drawPdfTableHeader(ctx, y) {
   const columns = [
-    [40, 60, "Data"],
-    [100, 150, "Descrição"],
-    [250, 65, "Tipo"],
-    [315, 88, "Valor"],
-    [403, 78, "Responsável"],
-    [481, 74, "Observações"],
+    [PDF_MARGIN, 62, "Data"],
+    [PDF_MARGIN + 62, 270, "Descrição"],
+    [PDF_MARGIN + 332, 72, "Tipo"],
+    [PDF_MARGIN + 404, 105, "Valor"],
+    [PDF_MARGIN + 509, 98, "Responsável"],
+    [PDF_MARGIN + 607, 171, "Observações"],
   ];
   ctx.fillStyle = "#f4f4f4";
-  ctx.fillRect(40, y, 515, 22);
+  ctx.fillRect(PDF_MARGIN, y, PDF_CONTENT_WIDTH, 22);
   ctx.strokeStyle = "#cccccc";
-  ctx.strokeRect(40, y, 515, 22);
+  ctx.strokeRect(PDF_MARGIN, y, PDF_CONTENT_WIDTH, 22);
   ctx.fillStyle = "#111111";
   ctx.font = "bold 9px Arial";
   columns.forEach(([x, width, label]) => {
@@ -917,15 +1118,15 @@ function drawPdfTableHeader(ctx, y) {
 
 function drawPdfTableRow(ctx, row, y, height) {
   const columns = [
-    [40, 60, row.date],
-    [100, 150, row.description],
-    [250, 65, row.type],
-    [315, 88, row.value],
-    [403, 78, row.owner],
-    [481, 74, row.notes],
+    [PDF_MARGIN, 62, row.date],
+    [PDF_MARGIN + 62, 270, row.description],
+    [PDF_MARGIN + 332, 72, row.type],
+    [PDF_MARGIN + 404, 105, row.value],
+    [PDF_MARGIN + 509, 98, row.owner],
+    [PDF_MARGIN + 607, 171, row.notes],
   ];
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(40, y, 515, height);
+  ctx.fillRect(PDF_MARGIN, y, PDF_CONTENT_WIDTH, height);
   ctx.strokeStyle = "#d0d0d0";
   ctx.fillStyle = "#555555";
   ctx.font = "9px Arial";
@@ -951,7 +1152,7 @@ function drawPdfFooter(page, pageNumber, totalPages) {
 async function renderTripPdfPages(record) {
   let logoImage = null;
   try {
-    logoImage = await loadImage("taz-logo.jpeg");
+    logoImage = await loadImage("taz-logo-relatorio.jpg");
   } catch (error) {
     logoImage = null;
   }
@@ -959,27 +1160,36 @@ async function renderTripPdfPages(record) {
   let page = newPdfCanvasPage();
   pages.push(page);
   drawPdfHeader(page, logoImage);
-  drawPdfSummary(page, record);
-  let y = 490;
+  let y = drawPdfSummary(page, record);
   drawPdfTableHeader(page.ctx, y);
   y += 22;
 
   detailRowsForPdf(record).forEach((row) => {
     page.ctx.font = "9px Arial";
-    const descriptionLines = wrapCanvasText(page.ctx, row.description, 140).length;
-    const notesLines = wrapCanvasText(page.ctx, row.notes, 64).length;
+    const descriptionLines = wrapCanvasText(page.ctx, row.description, 258).length;
+    const notesLines = wrapCanvasText(page.ctx, row.notes, 159).length;
     const rowHeight = Math.max(34, 16 + Math.max(descriptionLines, notesLines) * 11);
     if (y + rowHeight > page.height - 60) {
       page = newPdfCanvasPage();
       pages.push(page);
       drawPdfHeader(page, logoImage);
-      y = 105;
+      y = 118;
       drawPdfTableHeader(page.ctx, y);
       y += 22;
     }
     drawPdfTableRow(page.ctx, row, y, rowHeight);
     y += rowHeight;
   });
+
+  y += 16;
+  const comparisonHeight = pdfComparisonRows(record).available ? 42 + pdfComparisonRows(record).rows.length * 16 : 92;
+  if (y + comparisonHeight > page.height - 60) {
+    page = newPdfCanvasPage();
+    pages.push(page);
+    drawPdfHeader(page, logoImage);
+    y = 118;
+  }
+  drawPdfTorreComparison(page, record, y);
 
   pages.forEach((item, index) => drawPdfFooter(item, index + 1, pages.length));
   return pages.map((item) => item.canvas);
@@ -1016,8 +1226,8 @@ function pdfObject(id, body) {
 }
 
 function buildImagePdf(jpegPages) {
-  const pageWidth = 595.28;
-  const pageHeight = 841.89;
+  const pageWidth = jpegPages[0]?.pdfWidth || PDF_PAGE_WIDTH;
+  const pageHeight = jpegPages[0]?.pdfHeight || PDF_PAGE_HEIGHT;
   const objects = [];
   const kids = [];
   let nextId = 3;
@@ -1070,6 +1280,8 @@ async function createTripSummaryPdfFile(record) {
     return {
       width: canvas.width,
       height: canvas.height,
+      pdfWidth: canvas.pdfWidth || PDF_PAGE_WIDTH,
+      pdfHeight: canvas.pdfHeight || PDF_PAGE_HEIGHT,
       bytes: base64ToBytes(dataUrl.split(",")[1]),
     };
   });
@@ -1128,28 +1340,44 @@ function syncLabel(status, recordStatus = "") {
   return ["Aguardando envio", "pending"];
 }
 
+function tripTorrePeriod(record) {
+  if (!record?.tripDate) return {};
+  const startDate = record.tripDate;
+  const endDate = record.tripEndDate || record.tripDate;
+  return {
+    startAt: `${startDate}T00:00:00-03:00`,
+    endAt: `${endDate}T23:59:59-03:00`,
+  };
+}
+
 async function fetchVehicleTelemetry(record) {
   if (!record?.horsePlate || !navigator.onLine || !location.protocol.startsWith("http")) return null;
   const response = await fetch("/api/torre-veiculo", {
     method: "POST",
     headers: authHeaders({ "content-type": "application/json" }),
-    body: JSON.stringify({ plate: record.horsePlate }),
+    body: JSON.stringify({ plate: record.horsePlate, ...tripTorrePeriod(record) }),
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.ok) throw new Error(result.error || "Consulta da Torre recusada.");
-  return result.vehicle || null;
+  return result || null;
 }
 
 async function enrichRecordWithVehicleTelemetry(record) {
   try {
-    const telemetry = await fetchVehicleTelemetry(record);
-    if (telemetry) {
-      record.torreVehicle = telemetry;
+    const telemetryResult = await fetchVehicleTelemetry(record);
+    if (telemetryResult?.vehicle) {
+      record.torreVehicle = telemetryResult.vehicle;
       record.torreVehicleCapturedAt = new Date().toISOString();
       record.torreVehicleError = "";
     }
+    if (telemetryResult?.tripHistory) {
+      record.torreTrip = telemetryResult.tripHistory;
+      record.torreTripCapturedAt = new Date().toISOString();
+      record.torreTripError = telemetryResult.tripHistory.available ? "" : telemetryResult.tripHistory.reason || "";
+    }
   } catch (error) {
     record.torreVehicleError = error.message || "Falha ao consultar a Torre de Controle.";
+    record.torreTripError = error.message || "Falha ao consultar o histórico da Torre.";
   }
   return record;
 }
@@ -1424,6 +1652,27 @@ function loadInvoiceSummary(record = {}) {
     .map((load) => load.invoiceKey)
     .filter(Boolean)
     .join(" | ");
+}
+
+function invoiceNumberFromKey(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 44) {
+    const number = digits.slice(25, 34).replace(/^0+/, "");
+    return number || digits.slice(25, 34);
+  }
+  return digits || String(value || "").trim();
+}
+
+function invoiceDisplay(value) {
+  const number = invoiceNumberFromKey(value);
+  return number ? `NF ${number}` : "-";
+}
+
+function loadInvoiceNumberSummary(record = {}) {
+  const numbers = normalizedLoadEntries(record)
+    .map((load) => invoiceNumberFromKey(load.invoiceKey))
+    .filter(Boolean);
+  return numbers.length ? numbers.join(" | ") : "";
 }
 
 function loadSummaryText(record = {}) {
@@ -1758,6 +2007,9 @@ function formToRecord(existingId = "") {
     torreVehicle: existing?.torreVehicle || null,
     torreVehicleCapturedAt: existing?.torreVehicleCapturedAt || "",
     torreVehicleError: existing?.torreVehicleError || "",
+    torreTrip: existing?.torreTrip || null,
+    torreTripCapturedAt: existing?.torreTripCapturedAt || "",
+    torreTripError: existing?.torreTripError || "",
     status: existing?.status === "canceled" ? "" : existing?.status || "active",
     editHistory: Array.isArray(existing?.editHistory) ? existing.editHistory : [],
   };
@@ -2048,17 +2300,20 @@ registryForm.addEventListener("submit", async (event) => {
   }
 
   const current = items.find((item) => item.id === existingId);
+  const isDriver = activeRegistryType === "drivers";
+  const isHorse = activeRegistryType === "horses";
+  const hasCompanyCategory = activeRegistryType !== "trailers";
   const item = {
     id: current?.id || crypto.randomUUID(),
     name,
-    company: activeRegistryType === "drivers" ? registryCompany.value.trim().toUpperCase() : "",
-    category: activeRegistryType === "drivers" ? registryCategory.value.trim().toUpperCase() : "",
-    monthlySalary: activeRegistryType === "drivers" ? Number(registrySalary.value || 0) : 0,
-    dailyRate: activeRegistryType === "drivers" ? Number(registryDailyRate.value || 0) : 0,
-    tripCommission: activeRegistryType === "drivers" ? Number(registryCommission.value || 0) : 0,
-    ruim: activeRegistryType === "drivers" ? Number(registryReferenceBad.value || 0) : 0,
-    regular: activeRegistryType === "drivers" ? Number(registryReferenceGood.value || 0) : 0,
-    excelente: activeRegistryType === "drivers" ? Number(registryReferenceExcellent.value || 0) : 0,
+    company: hasCompanyCategory ? registryCompany.value.trim().toUpperCase() : "",
+    category: hasCompanyCategory ? registryCategory.value.trim().toUpperCase() : "",
+    monthlySalary: isDriver ? Number(registrySalary.value || 0) : 0,
+    dailyRate: isDriver ? Number(registryDailyRate.value || 0) : 0,
+    tripCommission: isDriver ? Number(registryCommission.value || 0) : 0,
+    ruim: isHorse ? Number(registryReferenceBad.value || 0) : Number(current?.ruim || 0),
+    regular: isHorse ? Number(registryReferenceGood.value || 0) : Number(current?.regular || 0),
+    excelente: isHorse ? Number(registryReferenceExcellent.value || 0) : Number(current?.excelente || 0),
     active: current?.active ?? true,
     updatedAt: new Date().toISOString(),
     syncStatus: "pending",
@@ -2259,6 +2514,10 @@ function tripExcelRow(record) {
   const finalKm = Number(record.finalKm || 0);
   const date = recordDate(record);
   const telemetry = vehicleTelemetry(record) || {};
+  const tripHistory = vehicleTripHistory(record) || {};
+  const motoristaKm = driverTripKm(record);
+  const motoristaLiters = driverTripLiters(record);
+  const motoristaAverage = driverTripAverage(record);
 
   return {
     ID: record.id,
@@ -2295,6 +2554,21 @@ function tripExcelRow(record) {
     "Torre Vmax 24h": Number(telemetry.vmax24Kmh || 0) || "",
     "Torre % Acima 100": Number(telemetry.pctAbove100 || 0) || "",
     "Torre Atualizado em": telemetry.updatedAt || "",
+    "Torre Historico Status": tripHistory.available ? "OK" : tripHistory.reason || "",
+    "Torre KM Viagem": Number(tripHistory.km || 0) || "",
+    "Motorista KM Viagem": motoristaKm ?? "",
+    "Diferenca KM Torre": motoristaKm !== null && Number.isFinite(Number(tripHistory.km))
+      ? Number(tripHistory.km) - motoristaKm
+      : "",
+    "Torre Litros Viagem": Number(tripHistory.liters || 0) || "",
+    "Motorista Litros Viagem": motoristaLiters ?? "",
+    "Torre Media KM/L Viagem": Number(tripHistory.kmPerLiter || 0) || "",
+    "Motorista Media KM/L Viagem": motoristaAverage ?? "",
+    "Torre Vmax Viagem": Number(tripHistory.vmaxKmh || 0) || "",
+    "Torre % Acima 100 Viagem": Number(tripHistory.pctAbove100 || 0) || "",
+    "Torre Diesel Final %": Number(tripHistory.dieselEndPct || 0) || "",
+    "Torre Arla Final %": Number(tripHistory.arlaEndPct || 0) || "",
+    "Torre Amostras Viagem": Number(tripHistory.samples || 0) || "",
     "Histórico": (record.editHistory || []).map((item) => `${item.at || ""} - ${item.action || ""}: ${item.reason || ""}`).join(" | "),
   };
 }
@@ -2344,19 +2618,21 @@ function registryExcelRows(items, type) {
           Nome: item.name,
           Empresa: item.company || "",
           Categoria: item.category || "",
-          "Salário Mensal": Number(item.monthlySalary || 0),
-          "Valor Diária": Number(item.dailyRate || 0),
-          "Comissão por Viagem": Number(item.tripCommission || 0),
-          "Media KM/L Ruim": Number(item.ruim || 0),
-          "Media KM/L Bom": Number(item.regular || 0),
-          "Media KM/L Excelente": Number(item.excelente || 0),
-          Ativo: item.active ? "SIM" : "NÃO",
+          "Salario Mensal": Number(item.monthlySalary || 0),
+          "Valor Diaria": Number(item.dailyRate || 0),
+          "Comissao por Viagem": Number(item.tripCommission || 0),
+          Ativo: item.active ? "SIM" : "NAO",
           "Atualizado em": item.updatedAt || "",
         }
       : {
           ID: item.id,
           Placa: item.name,
-          Ativo: item.active ? "SIM" : "NÃO",
+          Empresa: item.company || "",
+          Categoria: item.category || "",
+          "Media KM/L Ruim": Number(item.ruim || 0),
+          "Media KM/L Bom": Number(item.regular || 0),
+          "Media KM/L Excelente": Number(item.excelente || 0),
+          Ativo: item.active ? "SIM" : "NAO",
           "Atualizado em": item.updatedAt || "",
         }
   );
@@ -2401,7 +2677,11 @@ function createOnlineWorkbook(data) {
     "Comissão", "Salário Proporcional", "Quantidade Carregada", "Chave NF Carregamento",
     "Status", "Motivo Cancelamento", "Editado em", "Torre KM Veiculo", "Torre Diesel %",
     "Torre Arla %", "Torre Velocidade Atual", "Torre Vmax 24h", "Torre % Acima 100",
-    "Torre Atualizado em", "Histórico",
+    "Torre Atualizado em", "Torre Historico Status", "Torre KM Viagem",
+    "Motorista KM Viagem", "Diferenca KM Torre", "Torre Litros Viagem",
+    "Motorista Litros Viagem", "Torre Media KM/L Viagem", "Motorista Media KM/L Viagem",
+    "Torre Vmax Viagem", "Torre % Acima 100 Viagem", "Torre Diesel Final %",
+    "Torre Arla Final %", "Torre Amostras Viagem", "Histórico",
   ]);
   addSheet("APP_ABASTECIMENTOS", fuelRows, [
     "ID", "Viagem ID", "DataHora", "Data", "Data Abastecimento", "Motorista", "Empresa",
@@ -2416,12 +2696,12 @@ function createOnlineWorkbook(data) {
     "Placa Veiculo", "Veiculo", "KM", "Descricao", "Observacao", "Status",
   ]);
   addSheet("CAD_MOTORISTAS", registryExcelRows(data.registries.drivers, "drivers"), [
-    "ID", "Nome", "Empresa", "Categoria", "Salário Mensal", "Valor Diária",
-    "Comissão por Viagem", "Media KM/L Ruim", "Media KM/L Bom", "Media KM/L Excelente",
-    "Ativo", "Atualizado em",
+    "ID", "Nome", "Empresa", "Categoria", "Salario Mensal", "Valor Diaria",
+    "Comissao por Viagem", "Ativo", "Atualizado em",
   ]);
   addSheet("CAD_CAVALOS", registryExcelRows(data.registries.horses, "horses"), [
-    "ID", "Placa", "Ativo", "Atualizado em",
+    "ID", "Placa", "Empresa", "Categoria", "Media KM/L Ruim", "Media KM/L Bom",
+    "Media KM/L Excelente", "Ativo", "Atualizado em",
   ]);
   addSheet("CAD_CARRETAS", registryExcelRows(data.registries.trailers, "trailers"), [
     "ID", "Placa", "Ativo", "Atualizado em",
@@ -2663,3 +2943,5 @@ renderRecords();
 renderMaintenanceRecords();
 renderRegistryUi();
 initializeAuth();
+
+

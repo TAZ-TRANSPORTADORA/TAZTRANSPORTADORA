@@ -230,11 +230,20 @@ body.dark-theme .theme-toggle-icon {
 
 .trip-accordion {
   display: grid;
+  gap: 10px;
+  padding: 12px;
   background: var(--surface);
 }
 
 .trip-accordion-section {
-  border-bottom: 1px solid var(--line);
+  --menu-color: var(--blue);
+  --menu-soft: rgba(0, 75, 141, 0.1);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--menu-color);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 8px 18px rgba(5, 18, 33, 0.06);
   scroll-margin-top: 14px;
 }
 
@@ -242,13 +251,38 @@ body.dark-theme .theme-toggle-icon {
   border-top: 1px solid var(--line);
 }
 
+.trip-accordion-section.menu-vehicle {
+  --menu-color: #006fba;
+  --menu-soft: rgba(0, 111, 186, 0.12);
+}
+
+.trip-accordion-section.menu-expenses {
+  --menu-color: #c47b00;
+  --menu-soft: rgba(196, 123, 0, 0.14);
+}
+
+.trip-accordion-section.menu-mileage {
+  --menu-color: #267f5f;
+  --menu-soft: rgba(38, 127, 95, 0.14);
+}
+
+.trip-accordion-section.menu-fuel {
+  --menu-color: #8d4ec7;
+  --menu-soft: rgba(141, 78, 199, 0.13);
+}
+
+.trip-accordion-section.menu-load {
+  --menu-color: #b6425b;
+  --menu-soft: rgba(182, 66, 91, 0.13);
+}
+
 .trip-accordion-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  min-height: 58px;
-  padding: 0 16px;
+  min-height: 74px;
+  padding: 10px 14px 10px 12px;
   color: var(--ink);
   font-size: 0.94rem;
   font-weight: 800;
@@ -263,12 +297,61 @@ body.dark-theme .theme-toggle-icon {
 }
 
 .trip-accordion-summary:focus-visible {
-  outline: 3px solid rgba(244, 176, 0, 0.35);
-  outline-offset: -3px;
+  outline: 3px solid var(--menu-soft);
+  outline-offset: -4px;
 }
 
 .trip-accordion-section[open] .trip-accordion-summary {
-  background: var(--soft);
+  background: linear-gradient(90deg, var(--menu-soft), transparent 72%);
+}
+
+.trip-menu-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 12px;
+}
+
+.trip-menu-figure {
+  display: grid;
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 1px solid var(--menu-soft);
+  border-radius: 8px;
+  background: var(--menu-soft);
+  color: var(--menu-color);
+}
+
+.trip-menu-figure svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.trip-menu-copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.trip-menu-title {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.trip-menu-subtitle {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .trip-accordion-icon {
@@ -277,7 +360,8 @@ body.dark-theme .theme-toggle-icon {
   width: 32px;
   height: 32px;
   border-radius: 999px;
-  background: var(--soft);
+  background: var(--menu-soft);
+  border: 1px solid var(--menu-soft);
 }
 
 .trip-accordion-icon::before {
@@ -286,8 +370,8 @@ body.dark-theme .theme-toggle-icon {
   inset: 10px 9px auto auto;
   width: 9px;
   height: 9px;
-  border-right: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
+  border-right: 2px solid var(--menu-color);
+  border-bottom: 2px solid var(--menu-color);
   transform: rotate(45deg);
   transition: transform 0.16s ease;
 }
@@ -299,7 +383,8 @@ body.dark-theme .theme-toggle-icon {
 .trip-accordion-body {
   display: grid;
   gap: 14px;
-  padding: 0 16px 16px;
+  padding: 2px 14px 16px;
+  border-top: 1px solid var(--line);
 }
 
 .trip-accordion-body .section-title-row h2 {
@@ -893,6 +978,52 @@ body.dark-theme .whatsapp-button {
 @media (max-width: 430px) {
   .brand-panel {
     align-items: flex-start;
+  }
+
+  .trip-accordion {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .trip-accordion-summary {
+    min-height: 68px;
+    gap: 10px;
+    padding: 9px 10px;
+  }
+
+  .trip-menu-left {
+    gap: 10px;
+  }
+
+  .trip-menu-figure {
+    flex-basis: 42px;
+    width: 42px;
+    height: 42px;
+  }
+
+  .trip-menu-figure svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .trip-menu-title {
+    font-size: 0.9rem;
+  }
+
+  .trip-menu-subtitle {
+    font-size: 0.72rem;
+  }
+
+  .trip-accordion-icon {
+    flex-basis: 28px;
+    width: 28px;
+    height: 28px;
+  }
+
+  .trip-accordion-icon::before {
+    inset: 9px 8px auto auto;
+    width: 8px;
+    height: 8px;
   }
 
   .theme-toggle {

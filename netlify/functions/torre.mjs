@@ -6,6 +6,14 @@ const SCANIA_HOST = "https://dataaccess.scania.com";
 const DEFAULT_RFMS_BASE = "https://dataaccess.scania.com/rfms4";
 const SPEED_LIMIT = 100;
 const MOVING_SPEED = 3;
+const HISTORY_WINDOWS = [
+  { key: "24h", hours: 24 },
+  { key: "3d", days: 3 },
+  { key: "7d", days: 7 },
+  { key: "15d", days: 15 },
+  { key: "30d", days: 30 },
+  { key: "60d", days: 60 },
+];
 const tokenCache = new Map();
 
 const json = (status, body) =>
@@ -23,6 +31,38 @@ function env(name) {
     if (value) return value;
   }
   return process.env[name] || "";
+}
+
+function supabaseUrl() {
+  return (env("SUPABASE_URL") || "https://txwsqgojfaiivpffgclw.supabase.co").replace(/\/+$/, "");
+}
+
+function supabaseSecretKey() {
+  return env("SUPABASE_SERVICE_ROLE_KEY") || env("SUPABASE_SECRET_KEY");
+}
+
+function historyEnabled() {
+  return Boolean(supabaseSecretKey());
+}
+
+async function supabaseRest(path, options = {}) {
+  const key = supabaseSecretKey();
+  if (!key) return null;
+  const response = await fetch(`${supabaseUrl()}/rest/v1/${path}`, {
+    ...options,
+    headers: {
+      apikey: key,
+      authorization: `Bearer ${key}`,
+      "content-type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+  const text = await response.text();
+  const data = text ? safeJsonParse(text, text) : null;
+  if (!response.ok) {
+    throw new Error(typeof data === "string" ? data : data?.message || `Supabase respondeu ${response.status}.`);
+  }
+  return data;
 }
 
 async function dashboardAccess(request) {
@@ -368,6 +408,274 @@ function positionWindowStats(rows, latestPositions) {
   return byVin;
 }
 
+function snapshotFromVehicle(vehicle, capturedAt) {
+  return {
+    captured_at: capturedAt,
+    company: vehicle.empresa || "",
+    vin: vehicle.vin,
+    vehicle_name: vehicle.nome || vehicle.placa || "",
+    plate: vehicle.registrationNumber || vehicle.cavalo || "",
+    horse_plate: vehicle.cavalo || vehicle.placa_cavalo || vehicle.registrationNumber || "",
+    status: vehicle.status || "",
+    speed_kmh: number(vehicle.velocidade),
+    odometer_km: number(vehicle.odometro_km),
+    total_fuel_l: number(vehicle.combustivel_total_l),
+    diesel_pct: number(vehicle.diesel_pct),
+    arla_pct: number(vehicle.arla_pct),
+    latitude: number(vehicle.latitude),
+    longitude: number(vehicle.longitude),
+    alert_count: Array.isArray(vehicle.alertas) ? vehicle.alertas.length : 0,
+    alerts: Array.isArray(vehicle.alertas) ? vehicle.alertas : [],
+    source: "scania",
+    raw: {
+      km_dia: vehicle.km_dia,
+      litros_dia: vehicle.litros_dia,
+      km_litro: vehicle.km_litro,
+      vmax24: vehicle.vmax24,
+      pct_acima_100: vehicle.pct_acima_100,
+    },
+  };
+}
+
+function dateOrNull(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function uniqueHistoryRows(rows) {
+  const byKey = new Map();
+  for (const row of rows || []) {
+    const key = `${row?.vin || ""}|${row?.captured_at || ""}`;
+    if (row?.vin && row?.captured_at) byKey.set(key, row);
+  }
+  return [...byKey.values()].sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
+}
+
+function tripHistoryStatsForRows(rows, start, stop) {
+  const values = uniqueHistoryRows(rows)
+    .filter((row) => {
+      const captured = dateOrNull(row.captured_at);
+      return captured && captured >= start && captured <= stop;
+    })
+    .map((row) => ({
+      ...row,
+      capturedDate: dateOrNull(row.captured_at),
+      odometer: number(row.odometer_km),
+      fuel: number(row.total_fuel_l),
+      speed: number(row.speed_kmh) || 0,
+      diesel: number(row.diesel_pct),
+      arla: number(row.arla_pct),
+    }));
+
+  if (values.length < 2) return null;
+
+  const odometerValues = values.filter((row) => row.odometer !== null);
+  const fuelValues = values.filter((row) => row.fuel !== null);
+  if (odometerValues.length < 2) return null;
+
+  const firstOdo = odometerValues[0];
+  const lastOdo = odometerValues[odometerValues.length - 1];
+  const firstValue = values[0];
+  const lastValue = values[values.length - 1];
+  const km = Math.max(0, lastOdo.odometer - firstOdo.odometer);
+  const litros =
+    fuelValues.length >= 2 ? Math.max(0, fuelValues[fuelValues.length - 1].fuel - fuelValues[0].fuel) : null;
+  const moving = values.filter((row) => row.speed > MOVING_SPEED);
+  const above = moving.filter((row) => row.speed > SPEED_LIMIT);
+
+  return {
+    available: true,
+    samples: values.length,
+    startAt: start.toISOString(),
+    endAt: stop.toISOString(),
+    firstCapturedAt: firstValue.captured_at,
+    lastCapturedAt: lastValue.captured_at,
+    startOdometerKm: firstOdo.odometer,
+    endOdometerKm: lastOdo.odometer,
+    km,
+    liters: litros,
+    kmPerLiter: litros > 0 ? km / litros : null,
+    vmaxKmh: Math.max(...values.map((row) => row.speed || 0), 0),
+    pctAbove100: moving.length ? (above.length / moving.length) * 100 : 0,
+    dieselStartPct: firstValue.diesel,
+    dieselEndPct: lastValue.diesel,
+    arlaStartPct: firstValue.arla,
+    arlaEndPct: lastValue.arla,
+    alertCount: values.reduce((sum, row) => sum + (Number(row.alert_count) || 0), 0),
+  };
+}
+
+export async function loadTripHistoryComparison({ vin, startAt, endAt, currentVehicle, currentCapturedAt }) {
+  const start = dateOrNull(startAt);
+  const stop = dateOrNull(endAt);
+  if (!vin || !start || !stop || stop < start) {
+    return { enabled: historyEnabled(), available: false, reason: "Periodo da viagem invalido." };
+  }
+  if (!historyEnabled()) {
+    return { enabled: false, available: false, reason: "Historico da Torre nao configurado." };
+  }
+
+  const rows =
+    (await supabaseRest(
+      `torre_snapshots?select=*&vin=eq.${encodeURIComponent(vin)}&captured_at=gte.${encodeURIComponent(
+        start.toISOString()
+      )}&captured_at=lte.${encodeURIComponent(stop.toISOString())}&order=captured_at.asc&limit=3000`
+    )) || [];
+
+  if (currentVehicle?.vin === vin) {
+    const currentCaptured = dateOrNull(currentCapturedAt);
+    if (currentCaptured && currentCaptured >= start && currentCaptured <= stop) {
+      rows.push(snapshotFromVehicle(currentVehicle, currentCaptured.toISOString()));
+    }
+  }
+
+  const stats = tripHistoryStatsForRows(rows, start, stop);
+  if (!stats) {
+    return {
+      enabled: true,
+      available: false,
+      reason: "Sem amostras suficientes da Torre no periodo da viagem.",
+      samples: rows.length,
+      startAt: start.toISOString(),
+      endAt: stop.toISOString(),
+    };
+  }
+  return stats;
+}
+
+async function saveHistorySnapshots(vehicles, capturedAt) {
+  if (!historyEnabled() || !Array.isArray(vehicles) || !vehicles.length) {
+    return { enabled: historyEnabled(), saved: 0 };
+  }
+  const rows = vehicles
+    .filter((vehicle) => vehicle?.vin)
+    .map((vehicle) => snapshotFromVehicle(vehicle, capturedAt));
+  if (!rows.length) return { enabled: true, saved: 0 };
+  await supabaseRest("torre_snapshots?on_conflict=vin,captured_at", {
+    method: "POST",
+    headers: { prefer: "resolution=ignore-duplicates" },
+    body: JSON.stringify(rows),
+  });
+  return { enabled: true, saved: rows.length };
+}
+
+async function loadHistorySnapshots(days = 60) {
+  if (!historyEnabled()) return { enabled: false, rows: [] };
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; offset < 60000; offset += pageSize) {
+    const page =
+      (await supabaseRest(
+        `torre_snapshots?select=*&captured_at=gte.${encodeURIComponent(
+          since
+        )}&order=vin.asc,captured_at.asc&limit=${pageSize}&offset=${offset}`
+      )) || [];
+    if (!Array.isArray(page) || !page.length) break;
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return { enabled: true, rows };
+}
+
+async function deleteOldHistorySnapshots(days = 90) {
+  if (!historyEnabled()) return;
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  await supabaseRest(`torre_snapshots?captured_at=lt.${encodeURIComponent(cutoff)}`, {
+    method: "DELETE",
+  });
+}
+
+function windowStart(now, item) {
+  const ms =
+    Number(item.hours || 0) * 60 * 60 * 1000 + Number(item.days || 0) * 24 * 60 * 60 * 1000;
+  return new Date(now.getTime() - ms);
+}
+
+function historyStatsForRows(rows, start, stop) {
+  const values = rows
+    .filter((row) => {
+      const captured = new Date(row.captured_at);
+      return !Number.isNaN(captured.getTime()) && captured >= start && captured <= stop;
+    })
+    .map((row) => ({
+      ...row,
+      capturedDate: new Date(row.captured_at),
+      odometer: number(row.odometer_km),
+      fuel: number(row.total_fuel_l),
+      speed: number(row.speed_kmh) || 0,
+    }))
+    .sort((a, b) => a.capturedDate - b.capturedDate);
+  if (values.length < 2) return null;
+  const odometerValues = values.filter((row) => row.odometer !== null);
+  const fuelValues = values.filter((row) => row.fuel !== null);
+  if (odometerValues.length < 2) return null;
+  const firstOdo = odometerValues[0];
+  const lastOdo = odometerValues[odometerValues.length - 1];
+  const km = Math.max(0, lastOdo.odometer - firstOdo.odometer);
+  let litros = 0;
+  if (fuelValues.length >= 2) {
+    litros = Math.max(0, fuelValues[fuelValues.length - 1].fuel - fuelValues[0].fuel);
+  }
+  const moving = values.filter((row) => row.speed > MOVING_SPEED);
+  const above = moving.filter((row) => row.speed > SPEED_LIMIT);
+  return {
+    km,
+    litros,
+    km_litro: litros > 0 ? km / litros : null,
+    vmax: Math.max(...values.map((row) => row.speed || 0), 0),
+    pct_acima: moving.length ? (above.length / moving.length) * 100 : 0,
+    samples: values.length,
+  };
+}
+
+function applyHistoryWindows(data, snapshots) {
+  const rows = Array.isArray(snapshots) ? snapshots : [];
+  data.historico = {
+    enabled: historyEnabled(),
+    snapshots: rows.length,
+    windows: HISTORY_WINDOWS.map((item) => item.key),
+  };
+  data.medias.janelas_medias = HISTORY_WINDOWS.map((item) => item.key);
+  data.medias.janelas_picos = HISTORY_WINDOWS.map((item) => item.key);
+  if (!rows.length) return data;
+
+  const now = new Date(data.frota?.gerado_em || Date.now());
+  const byVin = new Map();
+  for (const row of rows) {
+    if (!row?.vin) continue;
+    const list = byVin.get(row.vin) || [];
+    list.push(row);
+    byVin.set(row.vin, list);
+  }
+
+  for (const vehicle of data.frota.veiculos || []) {
+    if (!vehicle?.vin) continue;
+    const currentSnapshot = snapshotFromVehicle(vehicle, data.frota.gerado_em);
+    const vehicleRows = [...(byVin.get(vehicle.vin) || []), currentSnapshot];
+    const media = data.medias.veiculos[vehicle.vin];
+    if (!media) continue;
+    media.medias = media.medias || {};
+    media.picos = media.picos || {};
+    for (const windowItem of HISTORY_WINDOWS) {
+      const stats = historyStatsForRows(vehicleRows, windowStart(now, windowItem), now);
+      if (!stats) continue;
+      media.medias[windowItem.key] = {
+        km: stats.km,
+        litros: stats.litros,
+        km_litro: stats.km_litro,
+        samples: stats.samples,
+      };
+      media.picos[windowItem.key] = {
+        vmax: stats.vmax,
+        pct_acima: stats.pct_acima,
+        samples: stats.samples,
+      };
+    }
+  }
+  return data;
+}
+
 function vehicleName(vehicle, vin) {
   return String(
     vehicle?.customerVehicleName ||
@@ -427,6 +735,7 @@ function companyPayload(company, raw) {
       litros_dia: day.litros,
       km_litro: day.kmLitro,
       odometro_km: odometerKm(status),
+      combustivel_total_l: fuelLiters(status),
       latitude: number(position?.gnssPosition?.latitude),
       longitude: number(position?.gnssPosition?.longitude),
       atualizado_em: updatedAt.toISOString(),
@@ -488,6 +797,13 @@ function buildDashboardShape(companyResults) {
       km_dia: vehicle.km_dia,
       litros_dia: vehicle.litros_dia,
       km_litro: vehicle.km_litro,
+      medias: {
+        "24h": {
+          km: vehicle.km_dia,
+          litros: vehicle.litros_dia,
+          km_litro: vehicle.km_litro,
+        },
+      },
       picos: {
         "24h": {
           vmax: vehicle.vmax24 || 0,
@@ -601,8 +917,8 @@ async function saveFullData(data) {
   }
 }
 
-export async function loadScaniaData() {
-  const cached = await cachedFullData();
+export async function loadScaniaData(options = {}) {
+  const cached = options.force ? null : await cachedFullData();
   if (cached) return cached;
 
   const companies = scaniaCompanies();
@@ -640,6 +956,26 @@ export async function loadScaniaData() {
   }
 
   const data = buildDashboardShape(results);
+  try {
+    const saved = await saveHistorySnapshots(data.frota.veiculos, data.frota.gerado_em);
+    const retentionDays = Math.max(60, Number(env("TORRE_HISTORY_RETENTION_DAYS") || 90));
+    await deleteOldHistorySnapshots(retentionDays);
+    const history = await loadHistorySnapshots(60);
+    applyHistoryWindows(data, history.rows);
+    data.historico = {
+      ...(data.historico || {}),
+      enabled: history.enabled,
+      saved: saved.saved,
+      snapshots: history.rows.length,
+      retentionDays,
+    };
+  } catch (error) {
+    data.historico = {
+      enabled: historyEnabled(),
+      snapshots: 0,
+      error: error.message,
+    };
+  }
   await saveFullData(data);
   return data;
 }

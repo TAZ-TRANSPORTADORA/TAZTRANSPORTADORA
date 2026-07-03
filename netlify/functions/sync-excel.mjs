@@ -27,6 +27,14 @@ function numberOrZero(value) {
   return Number.isFinite(number) ? number : 0;
 }
 
+function plateKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
+}
+
 function normalizedLoadEntries(record = {}) {
   const entries = Array.isArray(record.loadEntries) ? record.loadEntries : [];
   if (entries.length) return entries;
@@ -105,6 +113,16 @@ function excelPayload(record) {
   const startKm = numberOrZero(record.startKm);
   const finalKm = numberOrZero(record.finalKm);
   const telemetry = record.torreVehicle || {};
+  const tripHistory = record.torreTrip || {};
+  const driverTripKm = finalKm >= startKm ? finalKm - startKm : 0;
+  const horsePlateKey = plateKey(record.horsePlate);
+  const driverTripLiters = (record.fuels || [])
+    .filter((fuel) => String(fuel.fuelType || "DIESEL S10").toUpperCase().includes("DIESEL"))
+    .filter((fuel) => {
+      const supplied = plateKey(fuel.vehiclePlate || record.horsePlate);
+      return !horsePlateKey || !supplied || supplied === horsePlateKey;
+    })
+    .reduce((sum, fuel) => sum + numberOrZero(fuel.liters), 0);
   const tripRow = {
     id: record.id,
     dataHora: record.createdAt,
@@ -140,6 +158,19 @@ function excelPayload(record) {
     torreVelocidadeMax24h: numberOrZero(telemetry.vmax24Kmh),
     torrePctAcima100: numberOrZero(telemetry.pctAbove100),
     torreAtualizadoEm: telemetry.updatedAt || "",
+    torreHistoricoStatus: tripHistory.available ? "OK" : tripHistory.reason || "",
+    torreKmViagem: numberOrZero(tripHistory.km),
+    motoristaKmViagem: driverTripKm,
+    diferencaKmTorre: Number.isFinite(Number(tripHistory.km)) ? numberOrZero(tripHistory.km) - driverTripKm : 0,
+    torreLitrosViagem: numberOrZero(tripHistory.liters),
+    motoristaLitrosViagem: driverTripLiters,
+    torreMediaKmLViagem: numberOrZero(tripHistory.kmPerLiter),
+    motoristaMediaKmLViagem: driverTripLiters ? driverTripKm / driverTripLiters : 0,
+    torreVmaxViagem: numberOrZero(tripHistory.vmaxKmh),
+    torrePctAcima100Viagem: numberOrZero(tripHistory.pctAbove100),
+    torreDieselFinalPct: numberOrZero(tripHistory.dieselEndPct),
+    torreArlaFinalPct: numberOrZero(tripHistory.arlaEndPct),
+    torreAmostrasViagem: numberOrZero(tripHistory.samples),
   };
   const fuelRows = record.fuels.map((fuel, index) => ({
     id: `${record.id}-AB${index + 1}`,

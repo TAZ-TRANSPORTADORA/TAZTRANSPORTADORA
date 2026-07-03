@@ -16,6 +16,7 @@ Arquivos principais:
 - GUIA-BASE-ONLINE.txt: configuracao da base central Netlify
 - GUIA-LOGIN.txt: criacao de usuarios, senhas e perfis
 - GUIA-TORRE.txt: configuracao da integracao direta com Scania/rFMS
+- GUIA-HISTORICO-TORRE.txt: configuracao do historico da Torre no Supabase
 
 Como testar no computador:
 1. Abra o arquivo index.html no navegador.
@@ -53,6 +54,8 @@ Scania/rFMS:
 - O dashboard consulta a API oficial Scania Data Access por uma funcao Netlify.
 - Configure SCANIA_RFMS_CONFIG_JSON no Netlify com as credenciais das empresas.
 - Consulte GUIA-TORRE.txt.
+- Para indicadores reais de 24h, 3d, 7d, 15d, 30d e 60d, configure tambem
+  o historico conforme GUIA-HISTORICO-TORRE.txt.
 
 Dados usados pelo dashboard:
 - Viagens: data, motorista, empresa, categoria, placas, KM rodado e comprovante de despesa.
@@ -67,4 +70,5 @@ Observacao sobre camera:
 Para a leitura pela camera funcionar corretamente no Android, o app precisa rodar em uma origem segura, como HTTPS, localhost, ou estar empacotado como APK. Se abrir apenas como arquivo local, alguns navegadores podem bloquear a camera.
 
 Proximo passo recomendado:
-Automatizar o envio para a planilha no OneDrive com Power Automate. A estrutura das abas do app ja esta preparada para essa etapa.
+Rodar o SQL do historico no Supabase, cadastrar SUPABASE_SERVICE_ROLE_KEY no
+Netlify e fazer novo deploy para ativar a coleta automatica da Torre.

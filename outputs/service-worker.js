@@ -1,4 +1,4 @@
-const cacheName = "taz-app-v16";
+const cacheName = "taz-app-v20";
 const assets = [
   "./",
   "./index.html",
@@ -6,6 +6,7 @@ const assets = [
   "./app.js",
   "./manifest.json",
   "./taz-logo.jpeg",
+  "./taz-logo-relatorio.jpg",
 ];
 
 self.addEventListener("install", (event) => {

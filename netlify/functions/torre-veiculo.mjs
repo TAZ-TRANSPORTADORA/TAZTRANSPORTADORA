@@ -1,5 +1,5 @@
 import { authenticatedUser } from "./_auth.mjs";
-import { loadScaniaData } from "./torre.mjs";
+import { loadScaniaData, loadTripHistoryComparison } from "./torre.mjs";
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), {
@@ -103,9 +103,28 @@ export default async (request) => {
       return json(404, { ok: false, error: "Veiculo nao encontrado na Torre de Controle." });
     }
 
+    let tripHistory = null;
+    if (payload.startAt || payload.endAt) {
+      try {
+        tripHistory = await loadTripHistoryComparison({
+          vin: vehicle.vin,
+          startAt: payload.startAt,
+          endAt: payload.endAt,
+          currentVehicle: vehicle,
+          currentCapturedAt: data?.frota?.gerado_em,
+        });
+      } catch (error) {
+        tripHistory = {
+          available: false,
+          reason: error.message || "Falha ao consultar o historico da Torre.",
+        };
+      }
+    }
+
     return json(200, {
       ok: true,
       vehicle: publicVehicleSnapshot(vehicle, plate, data?.frota?.gerado_em),
+      tripHistory,
     });
   } catch (error) {
     console.error("Vehicle tower lookup error:", error);

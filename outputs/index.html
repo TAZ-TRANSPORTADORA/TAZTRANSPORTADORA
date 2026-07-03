@@ -63,9 +63,17 @@
       <form id="tripForm" class="form-panel" autocomplete="on">
         <div class="trip-accordion" id="tripAccordion" aria-label="Menu da viagem">
 
-        <details class="trip-accordion-section" id="tripVehicleSection" open>
+        <details class="trip-accordion-section menu-vehicle" id="tripVehicleSection" open>
           <summary class="trip-accordion-summary">
-            <span>VEICULO</span>
+            <span class="trip-menu-left">
+              <span class="trip-menu-figure" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M3 7h11v9H3z"></path><path d="M14 10h4l3 3v3h-7z"></path><circle cx="7" cy="18" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+              </span>
+              <span class="trip-menu-copy">
+                <span class="trip-menu-title">Veículo</span>
+                <span class="trip-menu-subtitle">Cavalo, carreta e motorista</span>
+              </span>
+            </span>
             <span class="trip-accordion-icon" aria-hidden="true"></span>
           </summary>
           <div class="trip-accordion-body">
@@ -126,9 +134,17 @@
           </div>
         </details>
 
-        <details class="trip-accordion-section" id="tripExpensesSection">
+        <details class="trip-accordion-section menu-expenses" id="tripExpensesSection">
           <summary class="trip-accordion-summary">
-            <span>DESPESAS</span>
+            <span class="trip-menu-left">
+              <span class="trip-menu-figure" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M4 7h16v12H4z"></path><path d="M7 7V5h10v2"></path><circle cx="12" cy="13" r="3"></circle><path d="M12 10v6"></path><path d="M10 12h3a1.5 1.5 0 0 1 0 3h-3"></path></svg>
+              </span>
+              <span class="trip-menu-copy">
+                <span class="trip-menu-title">Despesas</span>
+                <span class="trip-menu-subtitle">Valores e comprovante</span>
+              </span>
+            </span>
             <span class="trip-accordion-icon" aria-hidden="true"></span>
           </summary>
           <div class="trip-accordion-body">
@@ -155,15 +171,23 @@
           </div>
         </details>
 
-        <details class="trip-accordion-section" id="tripMileageSection">
+        <details class="trip-accordion-section menu-mileage" id="tripMileageSection">
           <summary class="trip-accordion-summary">
-            <span>QUILOMETRAGEM</span>
+            <span class="trip-menu-left">
+              <span class="trip-menu-figure" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M4 15a8 8 0 0 1 16 0"></path><path d="M5 19h14"></path><path d="M12 15l5-5"></path><circle cx="12" cy="15" r="2"></circle></svg>
+              </span>
+              <span class="trip-menu-copy">
+                <span class="trip-menu-title">Quilometragem</span>
+                <span class="trip-menu-subtitle">Datas e KM da viagem</span>
+              </span>
+            </span>
             <span class="trip-accordion-icon" aria-hidden="true"></span>
           </summary>
           <div class="trip-accordion-body">
           <div class="mileage-pair">
           <label class="trip-start-date-label">
-            Data de inÃ­cio
+            Data de início
             <input id="tripDate" name="tripDate" type="date" aria-label="Data inicial" required />
           </label>
 
@@ -187,9 +211,17 @@
           </div>
         </details>
 
-        <details class="trip-accordion-section fuel-section" id="tripFuelSection">
+        <details class="trip-accordion-section fuel-section menu-fuel" id="tripFuelSection">
           <summary class="trip-accordion-summary">
-            <span>ABASTECIMENTO</span>
+            <span class="trip-menu-left">
+              <span class="trip-menu-figure" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M6 3h8v18H6z"></path><path d="M8 6h4v4H8z"></path><path d="M14 8h2l3 3v7a2 2 0 0 1-2 2h-1"></path><path d="M19 11h-3"></path></svg>
+              </span>
+              <span class="trip-menu-copy">
+                <span class="trip-menu-title">Abastecimento</span>
+                <span class="trip-menu-subtitle">Diesel, Arla e nota fiscal</span>
+              </span>
+            </span>
             <span class="trip-accordion-icon" aria-hidden="true"></span>
           </summary>
           <div class="trip-accordion-body">
@@ -201,9 +233,17 @@
           </div>
         </details>
 
-        <details class="trip-accordion-section fuel-section" id="tripLoadSection">
+        <details class="trip-accordion-section fuel-section menu-load" id="tripLoadSection">
           <summary class="trip-accordion-summary">
-            <span>CARREGAMENTO</span>
+            <span class="trip-menu-left">
+              <span class="trip-menu-figure" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false"><path d="M4 8l8-4 8 4-8 4z"></path><path d="M4 8v8l8 4 8-4V8"></path><path d="M12 12v8"></path><path d="M8 6l8 4"></path></svg>
+              </span>
+              <span class="trip-menu-copy">
+                <span class="trip-menu-title">Carregamento</span>
+                <span class="trip-menu-subtitle">Quantidade e chave da nota</span>
+              </span>
+            </span>
             <span class="trip-accordion-icon" aria-hidden="true"></span>
           </summary>
           <div class="trip-accordion-body">
@@ -281,11 +321,11 @@
               <input id="maintenanceCompanyName" name="maintenanceCompanyName" type="text" list="companyOptions" placeholder="Ex.: TAZ" required />
             </label>
             <label>
-              Placa do veiculo
+              Placa do veículo
               <input id="maintenanceVehiclePlate" name="maintenanceVehiclePlate" type="text" list="fuelVehicleOptions" placeholder="Selecione ou digite a placa" autocapitalize="characters" required />
             </label>
             <label>
-              Veiculo
+              Veículo
               <select id="maintenanceVehicleType" name="maintenanceVehicleType">
                 <option value="CAVALO">Cavalo</option>
                 <option value="CARRETA">Carreta</option>
