@@ -14,6 +14,20 @@ const HISTORY_WINDOWS = [
   { key: "30d", days: 30 },
   { key: "60d", days: 60 },
 ];
+const TORRE_PLATE_LINKS = [
+  { horse: "AHQ3I00", names: ["VINICIUS", "VINICIUS DE CONTO"] },
+  { horse: "SRO5A91", names: ["CLAUDIO", "CLAUDIO MARCIO BORGES FERREIRA"] },
+  { horse: "SRM1E04", names: ["WANDERSON", "WANDERSON PINHEIRO"] },
+  { horse: "SQW3B13", names: ["ELENILSON", "ELENILSON AZEVEDO DE MOURA"] },
+  { horse: "SRH1E01", names: ["DAMIÃO", "DAMIAO", "ERNESTY", "ERNESTY NASCIMENTO TAVARES BRUM"] },
+  { horse: "TUB2I41", names: ["REINAN", "REINAN PRIORI"] },
+  { horse: "TTL7A43", names: ["JUSCELINO", "JUSCELINO REIS SANTOS"] },
+  { horse: "RXO6B17", names: ["VENDIDO"] },
+  { horse: "SRJ7G60", names: ["ADRIANO", "ADRIANO PONTE CUNHA"] },
+  { horse: "SRC9D09", names: ["ALEXANDRE", "ALEXANDRE FERRAZ DA PAIXAO"] },
+  { horse: "SRY7I24", names: ["WEVERTON", "WEVERTON SILVA DOS SANTOS"] },
+  { horse: "TUL2B13", names: ["EZEQUIEL", "EZEQUIEL DA FONSSECA"] },
+];
 const tokenCache = new Map();
 
 const json = (status, body) =>
@@ -690,6 +704,20 @@ function registration(vehicle) {
   return String(vehicle?.registrationNumber || vehicle?.licensePlate || "").toUpperCase();
 }
 
+function matchNameKey(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^A-Z0-9]/gi, "")
+    .toUpperCase();
+}
+
+function mappedHorsePlate(name) {
+  const key = matchNameKey(name);
+  const found = TORRE_PLATE_LINKS.find((item) => item.names.some((alias) => matchNameKey(alias) === key));
+  return found?.horse || "";
+}
+
 function companyPayload(company, raw) {
   const vehicles = vehiclesFrom(raw.vehicles);
   const latestPositions = positionsFrom(raw.positions);
@@ -714,7 +742,7 @@ function companyPayload(company, raw) {
     const picos = speedStats.get(vin) || { vmax: speed, pctAcima: speed > SPEED_LIMIT ? 100 : 0 };
     const alerts = alertLabels(status);
     const name = vehicleName(vehicle, vin);
-    const plate = registration(vehicle);
+    const plate = registration(vehicle) || mappedHorsePlate(name);
     const updatedAt = dateOf(position) || dateOf(status) || new Date();
 
     return {

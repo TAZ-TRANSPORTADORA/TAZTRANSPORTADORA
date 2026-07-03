@@ -2,6 +2,20 @@ import { authenticatedUser, canViewAll, companyAllowed, userCompanies, userRole 
 
 const MOVING_SPEED = 3;
 const LOCAL_TZ_OFFSET = "-03:00";
+const TORRE_PLATE_LINKS = [
+  { horse: "AHQ3I00", names: ["VINICIUS", "VINICIUS DE CONTO"] },
+  { horse: "SRO5A91", names: ["CLAUDIO", "CLAUDIO MARCIO BORGES FERREIRA"] },
+  { horse: "SRM1E04", names: ["WANDERSON", "WANDERSON PINHEIRO"] },
+  { horse: "SQW3B13", names: ["ELENILSON", "ELENILSON AZEVEDO DE MOURA"] },
+  { horse: "SRH1E01", names: ["DAMIÃO", "DAMIAO", "ERNESTY", "ERNESTY NASCIMENTO TAVARES BRUM"] },
+  { horse: "TUB2I41", names: ["REINAN", "REINAN PRIORI"] },
+  { horse: "TTL7A43", names: ["JUSCELINO", "JUSCELINO REIS SANTOS"] },
+  { horse: "RXO6B17", names: ["VENDIDO"] },
+  { horse: "SRJ7G60", names: ["ADRIANO", "ADRIANO PONTE CUNHA"] },
+  { horse: "SRC9D09", names: ["ALEXANDRE", "ALEXANDRE FERRAZ DA PAIXAO"] },
+  { horse: "SRY7I24", names: ["WEVERTON", "WEVERTON SILVA DOS SANTOS"] },
+  { horse: "TUL2B13", names: ["EZEQUIEL", "EZEQUIEL DA FONSSECA"] },
+];
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), {
@@ -87,6 +101,15 @@ function plateKey(value) {
     .toUpperCase();
 }
 
+function plateAliases(value) {
+  const wanted = plateKey(value);
+  const found = TORRE_PLATE_LINKS.find(
+    (item) => plateKey(item.horse) === wanted || item.names.some((name) => plateKey(name) === wanted),
+  );
+  if (!found) return new Set([wanted]);
+  return new Set([found.horse, ...found.names].map(plateKey).filter(Boolean));
+}
+
 function numberOrNull(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -132,7 +155,8 @@ function locationLabel(row) {
 }
 
 function rowMatchesPlate(row, wanted) {
-  return [row?.horse_plate, row?.plate, row?.vehicle_name, row?.vin].some((value) => plateKey(value) === wanted);
+  const aliases = plateAliases(wanted);
+  return [row?.horse_plate, row?.plate, row?.vehicle_name, row?.vin].some((value) => aliases.has(plateKey(value)));
 }
 
 function routePoints(rows) {
