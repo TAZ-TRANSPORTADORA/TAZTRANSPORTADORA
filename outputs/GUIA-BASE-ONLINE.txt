@@ -1,0 +1,77 @@
+BASE CENTRAL ONLINE DO APP TAZ
+
+ARQUITETURA
+Celulares -> Funcoes Netlify -> Netlify Blobs -> Excel consolidado
+
+O Netlify Blobs passa a ser a base principal. Cada viagem e gravada separadamente
+pelo seu ID. Isso permite reunir os dados de todos os aparelhos e evita duplicar
+um registro quando ele for reenviado.
+
+PUBLICACAO
+Publique o projeto completo pelo GitHub conectado ao Netlify. Estes itens devem
+estar no repositorio:
+- package.json
+- netlify.toml
+- netlify/functions
+- outputs
+
+O Netlify instalara automaticamente a dependencia @netlify/blobs durante o build.
+
+CONFIGURACAO OBRIGATORIA
+No Netlify:
+1. Abra Project configuration > Environment variables.
+2. Crie TAZ_ADMIN_KEY.
+3. Defina um codigo forte, conhecido apenas pela administracao.
+4. Faca um novo deploy.
+
+Nao coloque esse codigo em nenhum arquivo do projeto.
+
+COMO FUNCIONA
+- O motorista toca em Salvar registro.
+- O aparelho guarda uma copia local.
+- Com internet, a viagem e enviada para a base central.
+- As manutencoes informadas pelo motorista tambem sao enviadas para a base central.
+- Sem internet, o registro fica pendente e tenta novamente.
+- Reenviar a mesma viagem atualiza o registro de mesmo ID, sem duplicacao.
+- Motoristas, cavalos e carretas tambem ficam na base central.
+- Fotos de recibos/notas de despesas ficam como anexos na base online. A viagem
+  guarda o nome do arquivo e a chave do anexo para consulta posterior.
+
+BAIXAR TODOS OS DADOS
+1. Abra o app.
+2. Na secao Base online, digite o codigo TAZ_ADMIN_KEY.
+3. Toque em Baixar base online.
+4. O app gera Base_TAZ_online_DATA.xlsx contendo:
+   - APP_VIAGENS
+   - APP_ABASTECIMENTOS
+   - APP_MANUTENCOES
+   - CAD_MOTORISTAS
+   - CAD_CAVALOS
+   - CAD_CARRETAS
+
+USAR NO DASHBOARD
+1. Abra dashboard_taz_integrado.html no site.
+2. Entre com e-mail e senha do Supabase.
+3. O dashboard carregara a Base online e a Torre automaticamente.
+4. O botao Atualizar online pode ser usado para recarregar manualmente.
+5. Usuarios role=empresa recebem somente as empresas listadas em companies.
+6. A Scania/rFMS tambem sera consultada no mesmo clique, quando estiver
+   configurada no Netlify.
+7. A Scania/rFMS passa a atualizar automaticamente a cada 2 minutos enquanto o
+   dashboard estiver aberto.
+
+POWER AUTOMATE
+POWER_AUTOMATE_URL agora e opcional. Se estiver configurada, cada viagem tambem
+sera espelhada no Excel do OneDrive. Se nao estiver, a gravacao na base central
+continua funcionando normalmente.
+
+ROTAS
+- POST /api/sync-excel: grava viagens.
+- POST /api/sync-maintenance: grava manutencoes.
+- POST /api/sync-cadastros: grava ou consulta cadastros.
+- POST /api/base-online: consulta protegida por login Supabase ou TAZ_ADMIN_KEY.
+
+SEGURANCA
+A base completa so pode ser baixada com TAZ_ADMIN_KEY. Os motoristas nao precisam
+conhecer esse codigo para registrar viagens.
+No dashboard, usuarios com role=empresa recebem dados filtrados no servidor.
