@@ -2,6 +2,7 @@ import { authenticatedUser, canViewAll, companyAllowed, userCompanies, userRole 
 
 const MOVING_SPEED = 3;
 const LOCAL_TZ_OFFSET = "-03:00";
+const MAX_REPORT_DAYS = 31;
 const TORRE_PLATE_LINKS = [
   { horse: "AHQ3I00", names: ["VINICIUS", "VINICIUS DE CONTO"] },
   { horse: "SRO5A91", names: ["CLAUDIO", "CLAUDIO MARCIO BORGES FERREIRA"] },
@@ -121,6 +122,28 @@ function localDayStart(day) {
 
 function localDayEnd(day) {
   return new Date(`${day}T23:59:59${LOCAL_TZ_OFFSET}`);
+}
+
+function reportDate(value) {
+  const text = String(value || "").slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : "";
+}
+
+function daysInPeriod(startDate, endDate) {
+  const start = new Date(`${startDate}T00:00:00Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00Z`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function brDate(day) {
+  const date = localDayStart(day);
+  if (Number.isNaN(date.getTime())) return day;
+  return date.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+}
+
+function periodLabel(startDate, endDate) {
+  return startDate === endDate ? brDate(startDate) : `${brDate(startDate)} a ${brDate(endDate)}`;
 }
 
 function minutesBetween(start, end) {
@@ -268,7 +291,7 @@ function buildAnalysis(report) {
   }
   if (report.maxSpeedKmh > 0) analysis.push(`Maior velocidade registrada: ${Math.round(report.maxSpeedKmh)} km/h.`);
   if (report.thresholds[100] > 0) analysis.push(`Tempo acima de 100 km/h: ${minutesText(report.thresholds[100])}.`);
-  if (report.samples < 4) analysis.push("Relatorio com poucas leituras no dia; os tempos podem ficar aproximados.");
+  if (report.samples < 4) analysis.push("Relatorio com poucas leituras no periodo; os tempos podem ficar aproximados.");
   return analysis;
 }
 
@@ -280,7 +303,7 @@ function minutesText(value) {
   return `${hours}h${String(rest).padStart(2, "0")}min`;
 }
 
-function buildReport({ rows, plate, date }) {
+function buildReport({ rows, plate, startDate, endDate }) {
   const sorted = [...rows].sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at));
   const segments = buildSegments(sorted);
   const movingMinutes = segments.filter((segment) => segment.moving).reduce((sum, segment) => sum + segment.minutes, 0);
@@ -290,7 +313,10 @@ function buildReport({ rows, plate, date }) {
   const last = sorted[sorted.length - 1] || {};
   const report = {
     plate,
-    date,
+    date: startDate,
+    startDate,
+    endDate,
+    periodLabel: periodLabel(startDate, endDate),
     company: first.company || "",
     vehicleName: first.vehicle_name || first.plate || first.vin || plate,
     vin: first.vin || "",
@@ -325,18 +351,33 @@ export default async (request) => {
 
     const body = safeJsonParse(await request.text(), {});
     const plate = plateKey(body.plate);
-    const date = String(body.date || "").slice(0, 10);
+    const startDate = reportDate(body.startDate || body.date);
+    const endDate = reportDate(body.endDate || body.date || startDate);
     if (!plate) return json(400, { ok: false, error: "Informe a placa do cavalo." });
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(400, { ok: false, error: "Informe uma data valida." });
+    if (!startDate) return json(400, { ok: false, error: "Informe uma data inicial valida." });
+    if (!endDate) return json(400, { ok: false, error: "Informe uma data final valida." });
+    if (endDate < startDate) return json(400, { ok: false, error: "A data final nao pode ser menor que a inicial." });
+    const days = daysInPeriod(startDate, endDate);
+    if (days > MAX_REPORT_DAYS) {
+      return json(400, { ok: false, error: `Selecione um periodo de ate ${MAX_REPORT_DAYS} dias.` });
+    }
 
-    const start = localDayStart(date).toISOString();
-    const end = localDayEnd(date).toISOString();
-    const rows =
-      (await supabaseRest(
-        `torre_snapshots?select=*&captured_at=gte.${encodeURIComponent(start)}&captured_at=lte.${encodeURIComponent(
-          end,
-        )}&order=captured_at.asc&limit=5000`,
-      )) || [];
+    const start = localDayStart(startDate).toISOString();
+    const end = localDayEnd(endDate).toISOString();
+    const rows = [];
+    const pageSize = 5000;
+    let offset = 0;
+    while (true) {
+      const page =
+        (await supabaseRest(
+          `torre_snapshots?select=*&captured_at=gte.${encodeURIComponent(start)}&captured_at=lte.${encodeURIComponent(
+            end,
+          )}&order=captured_at.asc&limit=${pageSize}&offset=${offset}`,
+        )) || [];
+      rows.push(...page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
 
     const filtered = rows.filter((row) => {
       if (!rowMatchesPlate(row, plate)) return false;
@@ -346,11 +387,11 @@ export default async (request) => {
     if (!filtered.length) {
       return json(404, {
         ok: false,
-        error: "Nao encontrei historico da Torre para essa placa nessa data.",
+        error: "Nao encontrei historico da Torre para essa placa nesse periodo.",
       });
     }
 
-    return json(200, { ok: true, report: buildReport({ rows: filtered, plate, date }) });
+    return json(200, { ok: true, report: buildReport({ rows: filtered, plate, startDate, endDate }) });
   } catch (error) {
     return json(500, { ok: false, error: error.message || "Falha ao montar relatorio da Torre." });
   }
