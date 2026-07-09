@@ -775,6 +775,26 @@ body.dark-theme .sync-badge.draft {
   color: var(--blue-dark);
 }
 
+.records-filter {
+  display: grid;
+  gap: 6px;
+  margin: 10px 0 12px;
+}
+
+.records-filter input {
+  min-height: 44px;
+}
+
+.records-filter span,
+.records-list-summary {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.records-list-summary {
+  margin: 0 0 2px;
+}
+
 .records-list {
   display: grid;
   gap: 10px;

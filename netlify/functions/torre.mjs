@@ -576,6 +576,11 @@ async function saveHistorySnapshots(vehicles, capturedAt) {
 async function loadHistorySnapshots(days = 60) {
   if (!historyEnabled()) return { enabled: false, rows: [] };
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  return loadHistorySnapshotsSince(since);
+}
+
+async function loadHistorySnapshotsSince(since) {
+  if (!historyEnabled()) return { enabled: false, rows: [] };
   const rows = [];
   const pageSize = 1000;
   for (let offset = 0; offset < 60000; offset += pageSize) {
@@ -686,6 +691,75 @@ function applyHistoryWindows(data, snapshots) {
         samples: stats.samples,
       };
     }
+  }
+  return data;
+}
+
+function syncVehicleDailyMedia(data, vehicle) {
+  if (!vehicle?.vin || !data?.medias?.veiculos) return;
+  const media = data.medias.veiculos[vehicle.vin];
+  if (!media) return;
+  media.km_dia = vehicle.km_dia;
+  media.litros_dia = vehicle.litros_dia;
+  media.km_litro = vehicle.km_litro;
+}
+
+function refreshDailyTotals(data) {
+  const vehicles = Array.isArray(data?.frota?.veiculos) ? data.frota.veiculos : [];
+  const companies = aggregateCompanies(vehicles);
+  const totals = companies.reduce(
+    (sum, item) => ({
+      veiculos: sum.veiculos + item.veiculos,
+      rodando: sum.rodando + item.rodando,
+      parados: sum.parados + item.parados,
+      km_dia: sum.km_dia + item.km_dia,
+      litros_dia: sum.litros_dia + item.litros_dia,
+      alertas: sum.alertas + item.alertas,
+    }),
+    { veiculos: 0, rodando: 0, parados: 0, km_dia: 0, litros_dia: 0, alertas: 0 }
+  );
+  totals.km_litro = totals.litros_dia ? totals.km_dia / totals.litros_dia : 0;
+  data.frota.totais = totals;
+  data.frota.empresas = companies;
+  data.medias.empresas = companies;
+  data.medias.por_empresa = Object.fromEntries(companies.map((item) => [item.empresa, item]));
+}
+
+function applyTodayStatsFromHistory(data, snapshots) {
+  const rows = Array.isArray(snapshots) ? snapshots : [];
+  const vehicles = Array.isArray(data?.frota?.veiculos) ? data.frota.veiculos : [];
+  if (!rows.length || !vehicles.length) return data;
+
+  const now = new Date(data.frota?.gerado_em || Date.now());
+  const start = new Date(brazilDayStartIso(now));
+  const byVin = new Map();
+  for (const row of rows) {
+    if (!row?.vin) continue;
+    const list = byVin.get(row.vin) || [];
+    list.push(row);
+    byVin.set(row.vin, list);
+  }
+
+  let updated = 0;
+  for (const vehicle of vehicles) {
+    if (!vehicle?.vin) continue;
+    const vehicleRows = [...(byVin.get(vehicle.vin) || []), snapshotFromVehicle(vehicle, data.frota.gerado_em)];
+    const stats = historyStatsForRows(vehicleRows, start, now);
+    if (!stats) continue;
+    vehicle.km_dia = stats.km;
+    vehicle.litros_dia = stats.litros;
+    vehicle.km_litro = stats.km_litro || 0;
+    syncVehicleDailyMedia(data, vehicle);
+    updated += 1;
+  }
+
+  if (updated) {
+    refreshDailyTotals(data);
+    data.historico = {
+      ...(data.historico || {}),
+      dailyUpdatedVehicles: updated,
+      dailyStartAt: start.toISOString(),
+    };
   }
   return data;
 }
@@ -945,9 +1019,28 @@ async function saveFullData(data) {
   }
 }
 
+async function refreshCachedDailyStats(data) {
+  if (!historyEnabled() || !data?.frota?.veiculos?.length) return data;
+  try {
+    const since = brazilDayStartIso(new Date(data.frota?.gerado_em || Date.now()));
+    const history = await loadHistorySnapshotsSince(since);
+    applyTodayStatsFromHistory(data, history.rows);
+    data.historico = {
+      ...(data.historico || {}),
+      cachedDailyRefresh: true,
+    };
+  } catch (error) {
+    data.historico = {
+      ...(data.historico || {}),
+      cachedDailyRefreshError: error.message,
+    };
+  }
+  return data;
+}
+
 export async function loadScaniaData(options = {}) {
   const cached = options.force ? null : await cachedFullData();
-  if (cached) return cached;
+  if (cached) return refreshCachedDailyStats(cached);
 
   const companies = scaniaCompanies();
   if (!companies.length) {
@@ -990,6 +1083,7 @@ export async function loadScaniaData(options = {}) {
     await deleteOldHistorySnapshots(retentionDays);
     const history = await loadHistorySnapshots(60);
     applyHistoryWindows(data, history.rows);
+    applyTodayStatsFromHistory(data, history.rows);
     data.historico = {
       ...(data.historico || {}),
       enabled: history.enabled,

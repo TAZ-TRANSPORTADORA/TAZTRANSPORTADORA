@@ -24,6 +24,7 @@ const currentUserRole = document.querySelector("#currentUserRole");
 const form = document.querySelector("#tripForm");
 const tripAccordionSections = document.querySelectorAll(".trip-accordion-section");
 const recordsList = document.querySelector("#recordsList");
+const recordSearchInput = document.querySelector("#recordSearchInput");
 const toast = document.querySelector("#toast");
 const scannerDialog = document.querySelector("#scannerDialog");
 const scannerVideo = document.querySelector("#scannerVideo");
@@ -1810,14 +1811,87 @@ async function compressReceiptImage(file) {
   };
 }
 
+function normalizeRecordSearchText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function compactRecordSearchText(value) {
+  return normalizeRecordSearchText(value).replace(/[^a-z0-9]/g, "");
+}
+
+function recordSearchHaystack(record) {
+  const createdAt = record.createdAt ? new Date(record.createdAt) : null;
+  const createdLocal = createdAt && !Number.isNaN(createdAt.getTime())
+    ? createdAt.toLocaleString("pt-BR")
+    : "";
+  const fuels = Array.isArray(record.fuels)
+    ? record.fuels.flatMap((fuel) => [
+        fuel.fuelType,
+        fuel.vehiclePlate,
+        fuel.km,
+        fuel.liters,
+        fuel.invoiceKey,
+      ])
+    : [];
+  const loads = normalizedLoadEntries(record).flatMap((load) => [
+    load.quantity,
+    load.invoiceKey,
+    load.invoiceNumber,
+  ]);
+
+  return [
+    record.id,
+    record.createdAt,
+    createdLocal,
+    record.driverName,
+    record.companyName,
+    record.horsePlate,
+    record.trailerPlate,
+    record.tripDate,
+    record.tripEndDate,
+    record.startKm,
+    record.finalKm,
+    record.status,
+    record.syncStatus,
+    ...fuels,
+    ...loads,
+  ].join(" ");
+}
+
+function recordMatchesSearch(record, query) {
+  const term = normalizeRecordSearchText(query).trim();
+  if (!term) return true;
+  const haystack = normalizeRecordSearchText(recordSearchHaystack(record));
+  if (haystack.includes(term)) return true;
+  const compactTerm = compactRecordSearchText(term);
+  return Boolean(compactTerm && compactRecordSearchText(haystack).includes(compactTerm));
+}
+
 function renderRecords() {
   if (!records.length) {
     recordsList.innerHTML = "<p>Nenhum registro salvo ainda.</p>";
     return;
   }
 
-  recordsList.innerHTML = records
-    .slice(0, 8)
+  const searchTerm = recordSearchInput?.value || "";
+  const filteredRecords = records.filter((record) => recordMatchesSearch(record, searchTerm));
+  if (!filteredRecords.length) {
+    recordsList.innerHTML = '<p>Nenhuma viagem encontrada. Baixe a base online e tente buscar pela data, hora, placa ou motorista.</p>';
+    return;
+  }
+
+  const limit = searchTerm.trim() ? 40 : 8;
+  const visibleRecords = filteredRecords.slice(0, limit);
+  const summaryText = searchTerm.trim()
+    ? `Mostrando ${visibleRecords.length} de ${filteredRecords.length} viagem(ns) encontrada(s).`
+    : `Mostrando os ${visibleRecords.length} registros mais recentes de ${records.length}. Use a busca para encontrar viagens antigas.`;
+
+  recordsList.innerHTML = `
+    <p class="records-list-summary">${escapeHtml(summaryText)}</p>
+    ${visibleRecords
     .map(
       (record) => {
         const fuels = record.fuels || [];
@@ -1860,7 +1934,7 @@ function renderRecords() {
           <span>Frete: ${money(record.freightValue)} | Despesas: ${money(record.travelExpenses)}${receiptText}</span>
           <span>Caixinha: ${money(record.vehicleCash)} | Carregamentos: ${escapeHtml(loadText)}</span>
           ${telemetryText}
-          <span>${new Date(record.createdAt).toLocaleString("pt-BR")}</span>
+          <span>Criado em: ${new Date(record.createdAt).toLocaleString("pt-BR")} | ID: ${escapeHtml(record.id || "-")}</span>
           <span class="sync-badge ${statusClass}">${statusText}</span>
           ${record.syncStatus === "draft" ? `<button class="secondary reopen-draft-button" type="button" data-draft-id="${record.id}">Reabrir viagem</button>` : ""}
           ${recordActions}
@@ -1868,7 +1942,7 @@ function renderRecords() {
       `;
       }
     )
-    .join("");
+    .join("")}`;
 }
 
 function tripDays(startDate, endDate) {
@@ -2932,6 +3006,8 @@ updateExcelButton.addEventListener("click", async () => {
 if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("./service-worker.js");
 }
+
+recordSearchInput?.addEventListener("input", () => renderRecords());
 
 resetFuelEntries();
 resetLoadEntries();
