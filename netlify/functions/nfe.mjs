@@ -21,6 +21,27 @@ function onlyDigits(value) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function meudanfeErrorMessage(status, body) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(body);
+  } catch (_error) {
+    parsed = null;
+  }
+  const message = parsed?.message || parsed?.error || parsed?.erro || "";
+  if (status === 400) {
+    return message ||
+      "Meu Danfe recusou a consulta. Confira se a chave tem 44 digitos e se a nota ja esta disponivel para consulta.";
+  }
+  if (status === 401 || status === 403) {
+    return "Meu Danfe recusou a API Key. Confira a variavel MEUDANFE_API_KEY no Netlify.";
+  }
+  if (status === 404) {
+    return "NF-e nao encontrada no Meu Danfe para essa chave.";
+  }
+  return message || body || "Nao foi possivel consultar a NF-e.";
+}
+
 export default async (request) => {
   if (request.method !== "POST") {
     return json(405, { ok: false, error: "Metodo nao permitido." });
@@ -63,6 +84,9 @@ export default async (request) => {
     const response = await fetch(url, {
       headers: {
         authorization: `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "Api-Key": apiKey,
+        apikey: apiKey,
         "x-api-key": apiKey,
         accept: "application/xml, text/xml, application/json",
       },
@@ -72,7 +96,13 @@ export default async (request) => {
     if (!response.ok) {
       return json(response.status, {
         ok: false,
-        error: body || "Nao foi possivel consultar a NF-e.",
+        error: meudanfeErrorMessage(response.status, body),
+      });
+    }
+    if (contentType.includes("pdf")) {
+      return json(415, {
+        ok: false,
+        error: "O endpoint do Meu Danfe retornou PDF/DANFE. Para preencher os campos automaticamente, precisamos do endpoint que retorna XML.",
       });
     }
     if (contentType.includes("application/json")) {
