@@ -1,4 +1,4 @@
-const cacheName = "taz-app-v21";
+const cacheName = "taz-app-v22";
 const assets = [
   "./",
   "./index.html",

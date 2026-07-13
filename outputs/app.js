@@ -1589,6 +1589,12 @@ function createFuelEntry(fuel = {}) {
         <button class="icon-button" type="button" data-scan-target="${invoiceId}" aria-label="Ler chave de abastecimento pela câmera">📷</button>
       </div>
     </label>
+    <div class="nfe-actions">
+      <button class="secondary compact-button nfe-fetch-button" type="button" data-nfe-fetch="fuel">Buscar dados da NF</button>
+      <button class="secondary compact-button nfe-import-button" type="button" data-nfe-import="fuel">Importar XML</button>
+      <input class="nfe-xml-input" type="file" accept=".xml,text/xml,application/xml" hidden />
+    </div>
+    <div class="nfe-summary" data-nfe-summary></div>
   `;
   fuelEntries.appendChild(entry);
   entry.querySelector(".fuel-date-input").value = fuel.date || "";
@@ -1598,6 +1604,7 @@ function createFuelEntry(fuel = {}) {
   entry.querySelector(".fuel-liters-input").value = fuel.liters || "";
   entry.querySelector(".fuel-value-input").value = fuel.value || "";
   entry.querySelector(".fuel-invoice-input").value = fuel.invoiceKey || "";
+  setEntryNfe(entry, fuel.nfe || null);
   updateFuelRemoveButtons();
 }
 
@@ -1620,6 +1627,7 @@ function collectFuelEntries() {
       liters: entry.querySelector(".fuel-liters-input").value,
       value: entry.querySelector(".fuel-value-input").value,
       invoiceKey: entry.querySelector(".fuel-invoice-input").value,
+      nfe: entryNfe(entry),
     }))
     .filter((entry) => entry.date || entry.vehiclePlate || entry.km || entry.liters || entry.value || entry.invoiceKey);
 }
@@ -1682,10 +1690,249 @@ function loadSummaryText(record = {}) {
   return loads
     .map((load, index) => {
       const amount = load.amount ? numberText(load.amount) : "-";
-      const invoice = load.invoiceKey ? `NF ${load.invoiceKey}` : "NF -";
+      const invoice = load.invoiceKey ? invoiceDisplay(load.invoiceKey) : "NF -";
       return `${index + 1}. ${amount} - ${invoice}`;
     })
     .join(" | ");
+}
+
+function xmlNodeText(parent, tag) {
+  const node = parent?.getElementsByTagName(tag)?.[0];
+  return node ? node.textContent.trim() : "";
+}
+
+function dateInputFromNfe(value) {
+  if (!value) return "";
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10);
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return "";
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function numberInputFromNfe(value) {
+  const number = Number(String(value || "").replace(",", "."));
+  return Number.isFinite(number) && number > 0 ? String(number) : "";
+}
+
+function normalizeNfeProductName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function parseNfeXmlString(xmlText, fallbackKey = "") {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlText, "text/xml");
+  if (doc.querySelector("parsererror")) throw new Error("XML da NF-e invalido.");
+  const infNFe = doc.getElementsByTagName("infNFe")[0];
+  const ide = doc.getElementsByTagName("ide")[0];
+  const emit = doc.getElementsByTagName("emit")[0];
+  const dest = doc.getElementsByTagName("dest")[0];
+  const total = doc.getElementsByTagName("ICMSTot")[0];
+  const transporta = doc.getElementsByTagName("transporta")[0];
+  const veicTransp = doc.getElementsByTagName("veicTransp")[0];
+  const vol = doc.getElementsByTagName("vol")[0];
+  const enderEmit = emit?.getElementsByTagName("enderEmit")?.[0];
+  const enderDest = dest?.getElementsByTagName("enderDest")?.[0];
+  const products = Array.from(doc.getElementsByTagName("det")).map((det) => {
+    const prod = det.getElementsByTagName("prod")[0];
+    if (!prod) return null;
+    return {
+      code: xmlNodeText(prod, "cProd"),
+      description: xmlNodeText(prod, "xProd"),
+      ncm: xmlNodeText(prod, "NCM"),
+      quantity: xmlNodeText(prod, "qCom"),
+      unit: xmlNodeText(prod, "uCom"),
+      value: xmlNodeText(prod, "vProd"),
+    };
+  }).filter(Boolean);
+  const chave = infNFe?.getAttribute("Id")?.replace(/^NFe/i, "") || onlyDigits(fallbackKey);
+  return {
+    source: "NFE_XML",
+    capturedAt: new Date().toISOString(),
+    chave,
+    numero: xmlNodeText(ide, "nNF") || invoiceNumberFromKey(chave),
+    serie: xmlNodeText(ide, "serie"),
+    emissao: xmlNodeText(ide, "dhEmi") || xmlNodeText(ide, "dEmi"),
+    valorTotal: xmlNodeText(total, "vNF"),
+    emitente: xmlNodeText(emit, "xNome"),
+    cnpjEmitente: xmlNodeText(emit, "CNPJ"),
+    destinatario: xmlNodeText(dest, "xNome"),
+    docDestinatario: xmlNodeText(dest, "CNPJ") || xmlNodeText(dest, "CPF"),
+    origem: [xmlNodeText(enderEmit, "xMun"), xmlNodeText(enderEmit, "UF")].filter(Boolean).join(" / "),
+    destino: [xmlNodeText(enderDest, "xMun"), xmlNodeText(enderDest, "UF")].filter(Boolean).join(" / "),
+    transportadora: xmlNodeText(transporta, "xNome"),
+    placa: xmlNodeText(veicTransp, "placa"),
+    pesoBruto: xmlNodeText(vol, "pesoB"),
+    pesoLiquido: xmlNodeText(vol, "pesoL"),
+    volumes: xmlNodeText(vol, "qVol"),
+    products: products.slice(0, 20),
+  };
+}
+
+function fuelInfoFromNfe(nfe) {
+  const product = (nfe.products || []).find((item) => {
+    const name = normalizeNfeProductName(item.description);
+    return name.includes("DIESEL") || name.includes("ARLA");
+  });
+  if (!product) return {};
+  const name = normalizeNfeProductName(product.description);
+  return {
+    fuelType: name.includes("ARLA") ? "ARLA 32" : "DIESEL S10",
+    liters: numberInputFromNfe(product.quantity),
+    productName: product.description,
+  };
+}
+
+function loadAmountFromNfe(nfe) {
+  const productsTotal = (nfe.products || []).reduce((total, product) => {
+    const value = Number(String(product.quantity || "").replace(",", "."));
+    return Number.isFinite(value) ? total + value : total;
+  }, 0);
+  return numberInputFromNfe(nfe.pesoLiquido) ||
+    numberInputFromNfe(nfe.pesoBruto) ||
+    (productsTotal > 0 ? String(productsTotal) : "") ||
+    numberInputFromNfe(nfe.volumes);
+}
+
+function compactNfe(nfe = {}) {
+  return {
+    source: nfe.source || "NFE_XML",
+    capturedAt: nfe.capturedAt || new Date().toISOString(),
+    chave: onlyDigits(nfe.chave),
+    numero: nfe.numero || invoiceNumberFromKey(nfe.chave),
+    serie: nfe.serie || "",
+    emissao: nfe.emissao || "",
+    valorTotal: nfe.valorTotal || "",
+    emitente: nfe.emitente || "",
+    cnpjEmitente: nfe.cnpjEmitente || "",
+    destinatario: nfe.destinatario || "",
+    docDestinatario: nfe.docDestinatario || "",
+    origem: nfe.origem || "",
+    destino: nfe.destino || "",
+    transportadora: nfe.transportadora || "",
+    placa: nfe.placa || "",
+    pesoBruto: nfe.pesoBruto || "",
+    pesoLiquido: nfe.pesoLiquido || "",
+    volumes: nfe.volumes || "",
+    products: (nfe.products || []).slice(0, 20),
+  };
+}
+
+function nfeSummaryText(nfe = {}) {
+  if (!nfe || !Object.keys(nfe).length) return "";
+  const product = nfe.products?.[0]?.description || "";
+  return [
+    nfe.numero ? `NF ${nfe.numero}` : invoiceDisplay(nfe.chave),
+    dateInputFromNfe(nfe.emissao) ? formatTripDate(dateInputFromNfe(nfe.emissao)) : "",
+    nfe.valorTotal ? money(nfe.valorTotal) : "",
+    nfe.emitente,
+    nfe.origem && nfe.destino ? `${nfe.origem} -> ${nfe.destino}` : "",
+    product,
+  ].filter(Boolean).join(" | ");
+}
+
+function setEntryNfe(entry, nfe) {
+  const summary = entry.querySelector("[data-nfe-summary]");
+  const compact = nfe ? compactNfe(nfe) : null;
+  if (compact) {
+    entry.dataset.nfe = JSON.stringify(compact);
+    if (summary) {
+      summary.hidden = false;
+      summary.textContent = nfeSummaryText(compact);
+    }
+  } else {
+    delete entry.dataset.nfe;
+    if (summary) {
+      summary.hidden = true;
+      summary.textContent = "";
+    }
+  }
+}
+
+function entryNfe(entry) {
+  try {
+    return entry.dataset.nfe ? JSON.parse(entry.dataset.nfe) : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function applyNfeToFuelEntry(entry, nfe) {
+  const info = fuelInfoFromNfe(nfe);
+  const date = dateInputFromNfe(nfe.emissao);
+  const key = onlyDigits(nfe.chave);
+  if (date && !entry.querySelector(".fuel-date-input").value) entry.querySelector(".fuel-date-input").value = date;
+  if (info.fuelType) entry.querySelector(".fuel-type-input").value = info.fuelType;
+  if (nfe.placa && !entry.querySelector(".fuel-plate-input").value) entry.querySelector(".fuel-plate-input").value = String(nfe.placa).toUpperCase();
+  if (info.liters && !entry.querySelector(".fuel-liters-input").value) entry.querySelector(".fuel-liters-input").value = info.liters;
+  if (nfe.valorTotal && !entry.querySelector(".fuel-value-input").value) entry.querySelector(".fuel-value-input").value = numberInputFromNfe(nfe.valorTotal);
+  if (key) entry.querySelector(".fuel-invoice-input").value = key;
+  setEntryNfe(entry, nfe);
+}
+
+function applyNfeToLoadEntry(entry, nfe) {
+  const key = onlyDigits(nfe.chave);
+  const amount = loadAmountFromNfe(nfe);
+  if (amount && !entry.querySelector(".load-amount-input").value) entry.querySelector(".load-amount-input").value = amount;
+  if (key) entry.querySelector(".load-invoice-input").value = key;
+  setEntryNfe(entry, nfe);
+}
+
+function applyNfeToEntry(entry, nfe) {
+  if (entry.classList.contains("load-entry")) applyNfeToLoadEntry(entry, nfe);
+  else applyNfeToFuelEntry(entry, nfe);
+}
+
+async function fetchNfeByKey(chave) {
+  const response = await fetch("/api/nfe", {
+    method: "POST",
+    headers: authHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ chave }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.ok) throw new Error(data.error || "Nao foi possivel consultar a NF-e.");
+  return parseNfeXmlString(data.xml || "", chave);
+}
+
+async function fetchNfeForEntry(button) {
+  const entry = button.closest(".fuel-entry");
+  const input = entry?.querySelector(".fuel-invoice-input, .load-invoice-input");
+  const key = onlyDigits(input?.value);
+  if (!entry || key.length !== 44) {
+    showToast("Informe ou leia uma chave de NF-e com 44 digitos.");
+    return;
+  }
+  const original = button.textContent;
+  button.disabled = true;
+  button.textContent = "Buscando...";
+  try {
+    const nfe = await fetchNfeByKey(key);
+    applyNfeToEntry(entry, nfe);
+    showToast("Dados da NF-e preenchidos.");
+  } catch (error) {
+    showToast(error.message || "Nao foi possivel buscar a NF-e.");
+  } finally {
+    button.disabled = false;
+    button.textContent = original;
+  }
+}
+
+async function importNfeXmlForEntry(input) {
+  const entry = input.closest(".fuel-entry");
+  const file = input.files && input.files[0];
+  if (!entry || !file) return;
+  try {
+    const nfe = parseNfeXmlString(await file.text());
+    applyNfeToEntry(entry, nfe);
+    showToast("XML da NF-e importado.");
+  } catch (error) {
+    showToast(error.message || "Nao foi possivel ler o XML.");
+  } finally {
+    input.value = "";
+  }
 }
 
 function createLoadEntry(load = {}) {
@@ -1709,10 +1956,17 @@ function createLoadEntry(load = {}) {
         <button class="icon-button" type="button" data-scan-target="${invoiceId}" aria-label="Ler chave de carregamento pela camera">📷</button>
       </div>
     </label>
+    <div class="nfe-actions">
+      <button class="secondary compact-button nfe-fetch-button" type="button" data-nfe-fetch="load">Buscar dados da NF</button>
+      <button class="secondary compact-button nfe-import-button" type="button" data-nfe-import="load">Importar XML</button>
+      <input class="nfe-xml-input" type="file" accept=".xml,text/xml,application/xml" hidden />
+    </div>
+    <div class="nfe-summary" data-nfe-summary></div>
   `;
   loadEntries.appendChild(entry);
   entry.querySelector(".load-amount-input").value = load.amount || "";
   entry.querySelector(".load-invoice-input").value = load.invoiceKey || "";
+  setEntryNfe(entry, load.nfe || null);
   updateLoadRemoveButtons();
 }
 
@@ -1730,6 +1984,7 @@ function collectLoadEntries() {
       number: index + 1,
       amount: entry.querySelector(".load-amount-input").value,
       invoiceKey: entry.querySelector(".load-invoice-input").value,
+      nfe: entryNfe(entry),
     }))
     .filter((entry) => entry.amount || entry.invoiceKey);
 }
@@ -2476,6 +2731,24 @@ loadEntries.addEventListener("click", (event) => {
   updateLoadRemoveButtons();
 });
 
+document.addEventListener("click", (event) => {
+  const fetchButton = event.target.closest("[data-nfe-fetch]");
+  if (fetchButton) {
+    fetchNfeForEntry(fetchButton);
+    return;
+  }
+  const importButton = event.target.closest("[data-nfe-import]");
+  if (importButton) {
+    importButton.closest(".fuel-entry")?.querySelector(".nfe-xml-input")?.click();
+  }
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target.classList.contains("nfe-xml-input")) {
+    importNfeXmlForEntry(event.target);
+  }
+});
+
 function onlyDigits(text) {
   return (text || "").replace(/\D/g, "");
 }
@@ -2664,6 +2937,10 @@ function fuelExcelRows(record) {
     Litros: Number(fuel.liters || 0) || "",
     "Valor Combustível": Number(fuel.value || 0) || "",
     "Chave NF": fuel.invoiceKey || "",
+    "Número NF": fuel.nfe?.numero || invoiceNumberFromKey(fuel.invoiceKey),
+    "Emitente NF": fuel.nfe?.emitente || "",
+    "CNPJ Emitente NF": fuel.nfe?.cnpjEmitente || "",
+    "Produto NF": fuel.nfe?.products?.[0]?.description || "",
   }));
 }
 
@@ -2681,6 +2958,13 @@ function loadExcelRows(record) {
     "Carregamento": index + 1,
     "Quantidade Carregada": Number(load.amount || 0) || "",
     "Chave NF": load.invoiceKey || "",
+    "Número NF": load.nfe?.numero || invoiceNumberFromKey(load.invoiceKey),
+    "Emitente NF": load.nfe?.emitente || "",
+    "CNPJ Emitente NF": load.nfe?.cnpjEmitente || "",
+    "Origem NF": load.nfe?.origem || "",
+    "Destino NF": load.nfe?.destino || "",
+    "Peso Bruto NF": Number(load.nfe?.pesoBruto || 0) || "",
+    "Peso Líquido NF": Number(load.nfe?.pesoLiquido || 0) || "",
   }));
 }
 
@@ -2760,10 +3044,12 @@ function createOnlineWorkbook(data) {
   addSheet("APP_ABASTECIMENTOS", fuelRows, [
     "ID", "Viagem ID", "DataHora", "Data", "Data Abastecimento", "Motorista", "Empresa",
     "Placa Cavalo", "Placa Abastecida", "Combustível", "KM", "Litros", "Valor Combustível", "Chave NF",
+    "Número NF", "Emitente NF", "CNPJ Emitente NF", "Produto NF",
   ]);
   addSheet("APP_CARREGAMENTOS", loadRows, [
     "ID", "Viagem ID", "DataHora", "Data", "Motorista", "Empresa",
     "Placa Cavalo", "Placa Carreta", "Carregamento", "Quantidade Carregada", "Chave NF",
+    "Número NF", "Emitente NF", "CNPJ Emitente NF", "Origem NF", "Destino NF", "Peso Bruto NF", "Peso Líquido NF",
   ]);
   addSheet("APP_MANUTENCOES", maintenanceRows, [
     "ID", "DataHora", "Data Manutencao", "Tipo", "Motorista", "Empresa",
@@ -2955,6 +3241,10 @@ updateExcelButton.addEventListener("click", async () => {
         "Litros",
         "Valor Combustível",
         "Chave NF",
+        "Número NF",
+        "Emitente NF",
+        "CNPJ Emitente NF",
+        "Produto NF",
       ]
     );
     replaceSheet(
@@ -2973,6 +3263,13 @@ updateExcelButton.addEventListener("click", async () => {
         "Carregamento",
         "Quantidade Carregada",
         "Chave NF",
+        "Número NF",
+        "Emitente NF",
+        "CNPJ Emitente NF",
+        "Origem NF",
+        "Destino NF",
+        "Peso Bruto NF",
+        "Peso Líquido NF",
       ]
     );
     replaceSheet(

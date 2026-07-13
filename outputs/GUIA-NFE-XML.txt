@@ -1,0 +1,46 @@
+GUIA - NF-e / XML NO APP TAZ
+
+O que foi adicionado
+- Em Abastecimento e Carregamento, cada nota fiscal agora tem:
+  - botao para ler a chave pela camera;
+  - botao Buscar dados da NF;
+  - botao Importar XML.
+
+Como funciona sem API externa
+1. O motorista le ou digita a chave da NF-e.
+2. Se tiver o XML baixado no celular, toca em Importar XML.
+3. O app preenche os dados encontrados no XML.
+
+Como ativar a busca automatica pela chave
+No Netlify, cadastre estas variaveis:
+
+MEUDANFE_API_URL
+MEUDANFE_API_KEY
+
+O valor de MEUDANFE_API_URL precisa ser o endpoint fornecido pela API, contendo {chave}
+no local onde a chave de acesso deve entrar.
+
+Exemplo:
+https://endpoint-da-api/{chave}
+
+Tambem aceitamos o formato usado na documentacao do Meu Danfe:
+https://api.meudanfe.com.br/v2/fd/get/da/{Chave-Acesso}
+
+Dados aproveitados
+- Numero da NF-e
+- Serie
+- Data de emissao
+- Valor total
+- Emitente e CNPJ
+- Destinatario
+- Origem e destino
+- Transportadora
+- Placa
+- Peso bruto, peso liquido e volumes
+- Produtos da nota
+
+No abastecimento, quando o XML informa Diesel ou Arla, o app tenta preencher
+automaticamente o tipo de combustivel, litros e valor.
+
+No carregamento, o app tenta preencher a quantidade usando peso liquido,
+peso bruto, soma dos produtos ou volumes, nessa ordem.

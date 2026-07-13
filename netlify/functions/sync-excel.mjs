@@ -59,6 +59,15 @@ function loadInvoiceSummary(record = {}) {
     .join(" | ");
 }
 
+function invoiceNumberFromKey(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 44) {
+    const number = digits.slice(25, 34).replace(/^0+/, "");
+    return number || digits.slice(25, 34);
+  }
+  return digits || String(value || "").trim();
+}
+
 function safeFileName(value) {
   return String(value || "comprovante-despesa.jpg")
     .normalize("NFD")
@@ -186,6 +195,10 @@ function excelPayload(record) {
     litros: numberOrZero(fuel.liters),
     valorCombustivel: numberOrZero(fuel.value),
     chaveNf: fuel.invoiceKey || "",
+    numeroNf: fuel.nfe?.numero || invoiceNumberFromKey(fuel.invoiceKey),
+    emitenteNf: fuel.nfe?.emitente || "",
+    cnpjEmitenteNf: fuel.nfe?.cnpjEmitente || "",
+    produtoNf: fuel.nfe?.products?.[0]?.description || "",
   }));
   const loadRows = normalizedLoadEntries(record).map((load, index) => ({
     id: `${record.id}-CG${index + 1}`,
@@ -199,6 +212,13 @@ function excelPayload(record) {
     carregamento: index + 1,
     quantidadeCarregada: numberOrZero(load.amount),
     chaveNf: load.invoiceKey || "",
+    numeroNf: load.nfe?.numero || invoiceNumberFromKey(load.invoiceKey),
+    emitenteNf: load.nfe?.emitente || "",
+    cnpjEmitenteNf: load.nfe?.cnpjEmitente || "",
+    origemNf: load.nfe?.origem || "",
+    destinoNf: load.nfe?.destino || "",
+    pesoBrutoNf: numberOrZero(load.nfe?.pesoBruto),
+    pesoLiquidoNf: numberOrZero(load.nfe?.pesoLiquido),
   }));
   return { tripRow, fuelRows, loadRows };
 }

@@ -26,6 +26,11 @@
     Cache-Control = "no-store"
 
 [[headers]]
+  for = "/.netlify/functions/nfe"
+  [headers.values]
+    Cache-Control = "no-store"
+
+[[headers]]
   for = "/.netlify/functions/torre"
   [headers.values]
     Cache-Control = "no-store"
