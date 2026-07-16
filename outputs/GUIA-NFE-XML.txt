@@ -1,32 +1,133 @@
 GUIA - NF-e / XML NO APP TAZ
 
-O que foi adicionado
-- Em Abastecimento e Carregamento, cada nota fiscal agora tem:
+O que o app faz
+- Em Abastecimento e Carregamento, cada nota fiscal tem:
   - botao para ler a chave pela camera;
   - botao Buscar dados da NF;
   - botao Importar XML.
 
-Como funciona sem API externa
-1. O motorista le ou digita a chave da NF-e.
-2. Se tiver o XML baixado no celular, toca em Importar XML.
-3. O app preenche os dados encontrados no XML.
+Novo modo recomendado: SEFAZ com certificado digital
+O app agora pode buscar o XML direto pela Distribuicao DF-e da SEFAZ usando
+os certificados digitais A1 dos CNPJs das empresas.
 
-Como ativar a busca automatica pela chave
-No Netlify, cadastre estas variaveis:
+Importante
+- Use certificado A1 em arquivo .pfx ou .p12.
+- Nao envie certificado para o GitHub.
+- Nao coloque certificado dentro do app.
+- O certificado deve ficar somente nas variaveis de ambiente do Netlify.
+- Certificado A3, token ou cartao, normalmente nao funciona em Netlify.
+
+Variaveis no Netlify
+Cadastre no Netlify:
+
+NFE_SEFAZ_CONFIG_JSON
+NFE_CERT_TAZ_PFX_BASE64
+NFE_CERT_TAZ_PASSWORD
+NFE_CERT_PRATAZIL_PFX_BASE64
+NFE_CERT_PRATAZIL_PASSWORD
+NFE_CERT_RILUCA_PFX_BASE64
+NFE_CERT_RILUCA_PASSWORD
+
+Se o Netlify informar que o valor ficou maior que 5000 caracteres, divida o
+certificado em partes:
+
+NFE_CERT_TAZ_PFX_BASE64_1
+NFE_CERT_TAZ_PFX_BASE64_2
+
+NFE_CERT_PRATAZIL_PFX_BASE64_1
+NFE_CERT_PRATAZIL_PFX_BASE64_2
+
+NFE_CERT_RILUCA_PFX_BASE64_1
+NFE_CERT_RILUCA_PFX_BASE64_2
+
+O app junta as partes automaticamente. Se o certificado couber em uma variavel
+so, continue usando o nome sem _1 e _2.
+
+Exemplo de NFE_SEFAZ_CONFIG_JSON
+[
+  {
+    "empresa": "TAZ",
+    "cnpj": "00000000000000",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "empresa": "Pratazil",
+    "cnpj": "00000000000000",
+    "uf": "SP",
+    "ativo": true
+  },
+  {
+    "empresa": "Riluca",
+    "cnpj": "00000000000000",
+    "uf": "SP",
+    "ativo": true
+  }
+]
+
+Troque os CNPJs e UFs pelos dados reais de cada empresa.
+
+Como converter o certificado para Base64 no Windows
+1. Salve o arquivo .pfx/.p12 em uma pasta segura do computador.
+2. Abra o PowerShell.
+3. Rode este comando trocando o caminho do arquivo:
+
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\CAMINHO\certificado.pfx")) | Set-Clipboard
+
+4. Cole o resultado na variavel correspondente:
+   - TAZ: NFE_CERT_TAZ_PFX_BASE64
+   - Pratazil: NFE_CERT_PRATAZIL_PFX_BASE64
+   - Riluca: NFE_CERT_RILUCA_PFX_BASE64
+
+5. Cadastre a senha do certificado na variavel PASSWORD correspondente.
+
+Como dividir o Base64 em duas partes
+Use quando o Netlify mostrar: value is too long, must be 5000 characters or less.
+
+Exemplo para TAZ:
+
+$certificado = 'C:\Users\Neo Loc\Downloads\certificado-taz.pfx'
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($certificado))
+$base64.Substring(0, 4500) | Set-Clipboard
+
+Cole no Netlify em:
+NFE_CERT_TAZ_PFX_BASE64_1
+
+Depois rode:
+
+$base64.Substring(4500) | Set-Clipboard
+
+Cole no Netlify em:
+NFE_CERT_TAZ_PFX_BASE64_2
+
+Para Pratazil e Riluca, use o mesmo processo trocando o nome das variaveis.
+
+Fluxo de busca
+1. O motorista le ou digita a chave da NF-e.
+2. O app envia a chave para a funcao segura do Netlify.
+3. A funcao tenta consultar a SEFAZ usando os certificados configurados.
+4. Se a SEFAZ retornar XML completo, o app preenche os campos.
+5. Se a SEFAZ ainda nao estiver configurada, o app tenta usar o Meu Danfe.
+6. Se nada retornar XML, o motorista ainda pode usar Importar XML manualmente.
+
+Observacoes importantes da SEFAZ
+- A NF-e precisa estar autorizada para o CNPJ consultado.
+- Se o CNPJ nao for emitente, destinatario, transportador ou autorizado no XML,
+  a SEFAZ pode nao liberar o XML completo.
+- Em alguns casos a SEFAZ retorna apenas o resumo da NF-e. Para XML completo,
+  pode ser necessario manifestacao ou autorizacao do CNPJ na nota.
+- Consultas repetidas em excesso podem gerar bloqueio temporario por consumo indevido.
+
+Opcao alternativa: Meu Danfe
+Se quiser manter o Meu Danfe como plano B, mantenha tambem:
 
 MEUDANFE_API_URL
 MEUDANFE_API_KEY
 
-O valor de MEUDANFE_API_URL precisa ser o endpoint fornecido pela API, contendo {chave}
-no local onde a chave de acesso deve entrar.
-
-Exemplo:
-https://endpoint-da-api/{chave}
-
-Tambem aceitamos o formato usado na documentacao do Meu Danfe:
+Exemplo de URL:
 https://api.meudanfe.com.br/v2/fd/get/da/{Chave-Acesso}
 
-Dados aproveitados
+Dados aproveitados do XML
 - Numero da NF-e
 - Serie
 - Data de emissao
