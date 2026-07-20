@@ -1606,6 +1606,7 @@ function createFuelEntry(fuel = {}) {
   entry.querySelector(".fuel-invoice-input").value = fuel.invoiceKey || "";
   setEntryNfe(entry, fuel.nfe || null);
   updateFuelRemoveButtons();
+  return entry;
 }
 
 function updateFuelRemoveButtons() {
@@ -1773,17 +1774,35 @@ function parseNfeXmlString(xmlText, fallbackKey = "") {
 }
 
 function fuelInfoFromNfe(nfe) {
-  const product = (nfe.products || []).find((item) => {
-    const name = normalizeNfeProductName(item.description);
-    return name.includes("DIESEL") || name.includes("ARLA");
-  });
-  if (!product) return {};
-  const name = normalizeNfeProductName(product.description);
-  return {
-    fuelType: name.includes("ARLA") ? "ARLA 32" : "DIESEL S10",
-    liters: numberInputFromNfe(product.quantity),
-    productName: product.description,
-  };
+  return fuelItemsFromNfe(nfe)[0] || {};
+}
+
+function fuelProductKey(product = {}, index = 0) {
+  return [
+    index,
+    product.code,
+    product.description,
+    product.quantity,
+    product.unit,
+    product.value,
+  ].map((part) => String(part || "").trim()).join("|");
+}
+
+function fuelItemsFromNfe(nfe) {
+  return (nfe.products || []).map((product, index) => {
+    const name = normalizeNfeProductName(product.description);
+    const isArla = name.includes("ARLA");
+    const isDiesel = name.includes("DIESEL") || name.includes("S10") || name.includes("S-10");
+    if (!isArla && !isDiesel) return null;
+    return {
+      fuelType: isArla ? "ARLA 32" : "DIESEL S10",
+      liters: numberInputFromNfe(product.quantity),
+      value: numberInputFromNfe(product.value),
+      productName: product.description,
+      product,
+      productKey: fuelProductKey(product, index),
+    };
+  }).filter(Boolean);
 }
 
 function loadAmountFromNfe(nfe) {
@@ -1817,6 +1836,7 @@ function compactNfe(nfe = {}) {
     pesoBruto: nfe.pesoBruto || "",
     pesoLiquido: nfe.pesoLiquido || "",
     volumes: nfe.volumes || "",
+    fuelProductKey: nfe.fuelProductKey || "",
     products: (nfe.products || []).slice(0, 20),
   };
 }
@@ -1832,6 +1852,14 @@ function nfeSummaryText(nfe = {}) {
     nfe.origem && nfe.destino ? `${nfe.origem} -> ${nfe.destino}` : "",
     product,
   ].filter(Boolean).join(" | ");
+}
+
+function friendlyNfeErrorMessage(message) {
+  const text = String(message || "").trim();
+  if (!text || /^bad request$/i.test(text)) {
+    return "Consulta recusada. Confira se a chave tem 44 digitos e se pertence a um CNPJ com certificado cadastrado.";
+  }
+  return text;
 }
 
 function setEntryNfe(entry, nfe) {
@@ -1860,17 +1888,77 @@ function entryNfe(entry) {
   }
 }
 
-function applyNfeToFuelEntry(entry, nfe) {
-  const info = fuelInfoFromNfe(nfe);
+function nfeForFuelItem(nfe, info) {
+  return {
+    ...nfe,
+    valorTotal: info.value || nfe.valorTotal || "",
+    fuelProductKey: info.productKey || "",
+    products: info.product ? [info.product] : nfe.products,
+  };
+}
+
+function applyFuelInfoToEntry(entry, nfe, info = {}, baseValues = {}) {
   const date = dateInputFromNfe(nfe.emissao);
   const key = onlyDigits(nfe.chave);
-  if (date && !entry.querySelector(".fuel-date-input").value) entry.querySelector(".fuel-date-input").value = date;
-  if (info.fuelType) entry.querySelector(".fuel-type-input").value = info.fuelType;
-  if (nfe.placa && !entry.querySelector(".fuel-plate-input").value) entry.querySelector(".fuel-plate-input").value = String(nfe.placa).toUpperCase();
-  if (info.liters && !entry.querySelector(".fuel-liters-input").value) entry.querySelector(".fuel-liters-input").value = info.liters;
-  if (nfe.valorTotal && !entry.querySelector(".fuel-value-input").value) entry.querySelector(".fuel-value-input").value = numberInputFromNfe(nfe.valorTotal);
-  if (key) entry.querySelector(".fuel-invoice-input").value = key;
-  setEntryNfe(entry, nfe);
+  const dateInput = entry.querySelector(".fuel-date-input");
+  const typeInput = entry.querySelector(".fuel-type-input");
+  const plateInput = entry.querySelector(".fuel-plate-input");
+  const kmInput = entry.querySelector(".fuel-km-input");
+  const litersInput = entry.querySelector(".fuel-liters-input");
+  const valueInput = entry.querySelector(".fuel-value-input");
+  const invoiceInput = entry.querySelector(".fuel-invoice-input");
+  const plate = nfe.placa || baseValues.vehiclePlate || "";
+
+  if (date && !dateInput.value) dateInput.value = date;
+  if (info.fuelType) typeInput.value = info.fuelType;
+  if (plate && !plateInput.value) plateInput.value = String(plate).toUpperCase();
+  if (baseValues.km && !kmInput.value) kmInput.value = baseValues.km;
+  if (info.liters) litersInput.value = info.liters;
+  if (info.value) valueInput.value = info.value;
+  else if (nfe.valorTotal && !valueInput.value) valueInput.value = numberInputFromNfe(nfe.valorTotal);
+  if (key) invoiceInput.value = key;
+  setEntryNfe(entry, nfeForFuelItem(nfe, info));
+}
+
+function reusableFuelEntryForNfeItem(currentEntry, info, key) {
+  const entries = Array.from(fuelEntries.querySelectorAll(".fuel-entry"));
+  return entries.find((entry) => {
+    if (entry === currentEntry) return false;
+    const entryKey = onlyDigits(entry.querySelector(".fuel-invoice-input")?.value);
+    const entryType = entry.querySelector(".fuel-type-input")?.value;
+    const storedNfe = entryNfe(entry);
+    return entryKey === key && entryType === info.fuelType && storedNfe?.fuelProductKey === info.productKey;
+  });
+}
+
+function applyNfeToFuelEntry(entry, nfe) {
+  const fuelItems = fuelItemsFromNfe(nfe);
+  const items = fuelItems.length ? fuelItems : [fuelInfoFromNfe(nfe)];
+  const key = onlyDigits(nfe.chave);
+  const currentFuelType = entry.querySelector(".fuel-type-input")?.value || "";
+  const currentProductKey = entryNfe(entry)?.fuelProductKey || "";
+  const orderedItems = [...items].sort((a, b) => {
+    const aMatches = currentProductKey ? a.productKey === currentProductKey : a.fuelType === currentFuelType;
+    const bMatches = currentProductKey ? b.productKey === currentProductKey : b.fuelType === currentFuelType;
+    return Number(bMatches) - Number(aMatches);
+  });
+  const baseValues = {
+    vehiclePlate: entry.querySelector(".fuel-plate-input")?.value || "",
+    km: entry.querySelector(".fuel-km-input")?.value || "",
+  };
+
+  orderedItems.forEach((info, index) => {
+    const targetEntry = index === 0
+      ? entry
+      : reusableFuelEntryForNfeItem(entry, info, key) || createFuelEntry({
+          date: dateInputFromNfe(nfe.emissao),
+          vehiclePlate: baseValues.vehiclePlate || nfe.placa || "",
+          km: baseValues.km,
+          invoiceKey: key,
+        });
+    applyFuelInfoToEntry(targetEntry, nfe, info, baseValues);
+  });
+  return { fuelItemCount: fuelItems.length || 1 };
 }
 
 function applyNfeToLoadEntry(entry, nfe) {
@@ -1882,8 +1970,11 @@ function applyNfeToLoadEntry(entry, nfe) {
 }
 
 function applyNfeToEntry(entry, nfe) {
-  if (entry.classList.contains("load-entry")) applyNfeToLoadEntry(entry, nfe);
-  else applyNfeToFuelEntry(entry, nfe);
+  if (entry.classList.contains("load-entry")) {
+    applyNfeToLoadEntry(entry, nfe);
+    return { fuelItemCount: 0 };
+  }
+  return applyNfeToFuelEntry(entry, nfe);
 }
 
 async function fetchNfeByKey(chave) {
@@ -1900,7 +1991,7 @@ async function fetchNfeByKey(chave) {
     data = { error: raw || response.statusText };
   }
   if (!response.ok || !data.ok) {
-    throw new Error(data.error || response.statusText || "Nao foi possivel consultar a NF-e.");
+    throw new Error(friendlyNfeErrorMessage(data.error || response.statusText || "Nao foi possivel consultar a NF-e."));
   }
   return parseNfeXmlString(data.xml || "", chave);
 }
@@ -1918,8 +2009,10 @@ async function fetchNfeForEntry(button) {
   button.textContent = "Buscando...";
   try {
     const nfe = await fetchNfeByKey(key);
-    applyNfeToEntry(entry, nfe);
-    showToast("Dados da NF-e preenchidos.");
+    const result = applyNfeToEntry(entry, nfe);
+    showToast(result.fuelItemCount > 1
+      ? `NF-e preenchida em ${result.fuelItemCount} abastecimentos.`
+      : "Dados da NF-e preenchidos.");
   } catch (error) {
     showToast(error.message || "Nao foi possivel buscar a NF-e.");
   } finally {
@@ -1934,8 +2027,10 @@ async function importNfeXmlForEntry(input) {
   if (!entry || !file) return;
   try {
     const nfe = parseNfeXmlString(await file.text());
-    applyNfeToEntry(entry, nfe);
-    showToast("XML da NF-e importado.");
+    const result = applyNfeToEntry(entry, nfe);
+    showToast(result.fuelItemCount > 1
+      ? `XML importado em ${result.fuelItemCount} abastecimentos.`
+      : "XML da NF-e importado.");
   } catch (error) {
     showToast(error.message || "Nao foi possivel ler o XML.");
   } finally {
