@@ -1892,8 +1892,16 @@ async function fetchNfeByKey(chave) {
     headers: authHeaders({ "content-type": "application/json" }),
     body: JSON.stringify({ chave }),
   });
-  const data = await response.json();
-  if (!response.ok || !data.ok) throw new Error(data.error || "Nao foi possivel consultar a NF-e.");
+  const raw = await response.text();
+  let data = {};
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch (_error) {
+    data = { error: raw || response.statusText };
+  }
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || response.statusText || "Nao foi possivel consultar a NF-e.");
+  }
   return parseNfeXmlString(data.xml || "", chave);
 }
 
@@ -1902,7 +1910,7 @@ async function fetchNfeForEntry(button) {
   const input = entry?.querySelector(".fuel-invoice-input, .load-invoice-input");
   const key = onlyDigits(input?.value);
   if (!entry || key.length !== 44) {
-    showToast("Informe ou leia uma chave de NF-e com 44 digitos.");
+    showToast(`Chave da NF-e incompleta: ${key.length}/44 digitos.`);
     return;
   }
   const original = button.textContent;
