@@ -1,5 +1,6 @@
 import https from "node:https";
 import zlib from "node:zlib";
+import { getStore } from "@netlify/blobs";
 import { authenticatedUser } from "./_auth.mjs";
 
 const NFE_DFE_ENDPOINT =
@@ -64,6 +65,15 @@ function envJoined(name) {
     if (part) parts.push(part.replace(/\s/g, ""));
   }
   return parts.join("");
+}
+
+async function blobText(storeName, key) {
+  try {
+    const store = getStore({ name: storeName, consistency: "strong" });
+    return await store.get(key, { type: "text", consistency: "strong" });
+  } catch (_error) {
+    return "";
+  }
 }
 
 function onlyDigits(value) {
@@ -137,6 +147,14 @@ function readSefazCompanies() {
       };
     })
     .filter((company) => company.name && company.cnpj && company.cUF);
+}
+
+async function companyPfxBase64(company) {
+  const envValue = envJoined(company.pfxBase64Env) || company.pfxBase64 || "";
+  if (envValue) return envValue;
+  const slug = envSlug(company.name);
+  const stored = await blobText("taz-sefaz-certificates", `cert/${slug}/pfxBase64`);
+  return String(stored || "").replace(/\s/g, "");
 }
 
 function meudanfeErrorMessage(status, body) {
@@ -334,12 +352,14 @@ async function fetchSefazNfeXml(chave, payload = {}) {
   const errors = [];
 
   for (const company of candidates) {
-    if (!company.pfxBase64 || !company.passphrase) {
+    const pfxBase64 = await companyPfxBase64(company);
+    const activeCompany = { ...company, pfxBase64 };
+    if (!activeCompany.pfxBase64 || !activeCompany.passphrase) {
       errors.push(`${company.name}: certificado ou senha nao configurados (${company.pfxBase64Env} / ${company.passwordEnv}).`);
       continue;
     }
     try {
-      const response = await postSefazSoap(company, buildSefazEnvelope(company, chave));
+      const response = await postSefazSoap(activeCompany, buildSefazEnvelope(activeCompany, chave));
       if (!response.ok) {
         errors.push(`${company.name}: SEFAZ respondeu HTTP ${response.status}.`);
         continue;

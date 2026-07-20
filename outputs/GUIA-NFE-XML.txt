@@ -7,43 +7,32 @@ O que o app faz
   - botao Importar XML.
 
 Novo modo recomendado: SEFAZ com certificado digital
-O app agora pode buscar o XML direto pela Distribuicao DF-e da SEFAZ usando
-os certificados digitais A1 dos CNPJs das empresas.
+O app pode buscar o XML pela Distribuicao DF-e da SEFAZ usando os certificados
+digitais A1 dos CNPJs das empresas.
 
 Importante
 - Use certificado A1 em arquivo .pfx ou .p12.
 - Nao envie certificado para o GitHub.
 - Nao coloque certificado dentro do app.
-- O certificado deve ficar somente nas variaveis de ambiente do Netlify.
 - Certificado A3, token ou cartao, normalmente nao funciona em Netlify.
 
-Variaveis no Netlify
-Cadastre no Netlify:
+Por que nao colocar o certificado em Environment variables?
+O Netlify/AWS Lambda tem limite total de variaveis de ambiente. Certificados
+em Base64 passam desse limite e fazem o deploy falhar.
+
+Por isso, o projeto agora usa:
+- Environment variables apenas para configuracoes pequenas e senhas.
+- Netlify Blobs para guardar o conteudo Base64 do certificado.
+
+1. Variaveis que DEVEM ficar no Netlify
+Cadastre ou mantenha apenas estas variaveis pequenas:
 
 NFE_SEFAZ_CONFIG_JSON
-NFE_CERT_TAZ_PFX_BASE64
 NFE_CERT_TAZ_PASSWORD
-NFE_CERT_PRATAZIL_PFX_BASE64
 NFE_CERT_PRATAZIL_PASSWORD
-NFE_CERT_RILUCA_PFX_BASE64
 NFE_CERT_RILUCA_PASSWORD
 
-Se o Netlify informar que o valor ficou maior que 5000 caracteres, divida o
-certificado em partes:
-
-NFE_CERT_TAZ_PFX_BASE64_1
-NFE_CERT_TAZ_PFX_BASE64_2
-
-NFE_CERT_PRATAZIL_PFX_BASE64_1
-NFE_CERT_PRATAZIL_PFX_BASE64_2
-
-NFE_CERT_RILUCA_PFX_BASE64_1
-NFE_CERT_RILUCA_PFX_BASE64_2
-
-O app junta as partes automaticamente. Se o certificado couber em uma variavel
-so, continue usando o nome sem _1 e _2.
-
-Exemplo de NFE_SEFAZ_CONFIG_JSON
+Exemplo de NFE_SEFAZ_CONFIG_JSON:
 [
   {
     "empresa": "TAZ",
@@ -67,48 +56,56 @@ Exemplo de NFE_SEFAZ_CONFIG_JSON
 
 Troque os CNPJs e UFs pelos dados reais de cada empresa.
 
-Como converter o certificado para Base64 no Windows
-1. Salve o arquivo .pfx/.p12 em uma pasta segura do computador.
-2. Abra o PowerShell.
-3. Rode este comando trocando o caminho do arquivo:
+2. Variaveis que DEVEM ser removidas do Netlify
+Remova todas as variaveis grandes de certificado, como:
 
-[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\CAMINHO\certificado.pfx")) | Set-Clipboard
-
-4. Cole o resultado na variavel correspondente:
-   - TAZ: NFE_CERT_TAZ_PFX_BASE64
-   - Pratazil: NFE_CERT_PRATAZIL_PFX_BASE64
-   - Riluca: NFE_CERT_RILUCA_PFX_BASE64
-
-5. Cadastre a senha do certificado na variavel PASSWORD correspondente.
-
-Como dividir o Base64 em duas partes
-Use quando o Netlify mostrar: value is too long, must be 5000 characters or less.
-
-Exemplo para TAZ:
-
-$certificado = 'C:\Users\Neo Loc\Downloads\certificado-taz.pfx'
-$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($certificado))
-$base64.Substring(0, 4500) | Set-Clipboard
-
-Cole no Netlify em:
+NFE_CERT_TAZ_PFX_BASE64
 NFE_CERT_TAZ_PFX_BASE64_1
-
-Depois rode:
-
-$base64.Substring(4500) | Set-Clipboard
-
-Cole no Netlify em:
 NFE_CERT_TAZ_PFX_BASE64_2
+NFE_CERT_PRATAZIL_PFX_BASE64
+NFE_CERT_PRATAZIL_PFX_BASE64_1
+NFE_CERT_PRATAZIL_PFX_BASE64_2
+NFE_CERT_RILUCA_PFX_BASE64
+NFE_CERT_RILUCA_PFX_BASE64_1
+NFE_CERT_RILUCA_PFX_BASE64_2
 
-Para Pratazil e Riluca, use o mesmo processo trocando o nome das variaveis.
+Se essas variaveis continuarem no Netlify, o deploy pode falhar com erro de
+limite de 4KB da AWS Lambda.
 
-Fluxo de busca
+3. Fazer o deploy
+Depois de remover as variaveis grandes, suba este pacote no GitHub e rode:
+
+Deploys > Trigger deploy > Deploy project without cache
+
+4. Enviar os certificados para o Netlify Blobs
+Depois que o deploy estiver online, envie cada certificado pelo PowerShell.
+
+Exemplo TAZ:
+$certificado = 'C:\Users\Neo Loc\Downloads\2025 TAZ TRANSPORTADORA DE PRODUTOS RODOVIARIOS LTDA_52008183000195.pfx'
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($certificado))
+$body = @{ empresa = 'TAZ'; pfxBase64 = $base64 } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri 'https://tazmotoristas.netlify.app/api/nfe-certificados' -Headers @{ 'x-taz-admin-key' = 'SEU_CODIGO_ADMINISTRATIVO' } -ContentType 'application/json' -Body $body
+
+Exemplo Pratazil:
+$certificado = 'C:\Users\Neo Loc\Downloads\PRATAZIL HORTIGRANJEIROS LTDA.pfx'
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($certificado))
+$body = @{ empresa = 'Pratazil'; pfxBase64 = $base64 } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri 'https://tazmotoristas.netlify.app/api/nfe-certificados' -Headers @{ 'x-taz-admin-key' = 'SEU_CODIGO_ADMINISTRATIVO' } -ContentType 'application/json' -Body $body
+
+Exemplo Riluca:
+$certificado = 'C:\Users\Neo Loc\Downloads\RILUCA COMÉRCIO DE FRUTAS LTDA.pfx'
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes($certificado))
+$body = @{ empresa = 'Riluca'; pfxBase64 = $base64 } | ConvertTo-Json -Compress
+Invoke-RestMethod -Method Post -Uri 'https://tazmotoristas.netlify.app/api/nfe-certificados' -Headers @{ 'x-taz-admin-key' = 'SEU_CODIGO_ADMINISTRATIVO' } -ContentType 'application/json' -Body $body
+
+Troque SEU_CODIGO_ADMINISTRATIVO pelo valor da variavel TAZ_ADMIN_KEY.
+
+5. Fluxo de busca
 1. O motorista le ou digita a chave da NF-e.
 2. O app envia a chave para a funcao segura do Netlify.
-3. A funcao tenta consultar a SEFAZ usando os certificados configurados.
+3. A funcao consulta a SEFAZ usando o certificado da empresa.
 4. Se a SEFAZ retornar XML completo, o app preenche os campos.
-5. Se a SEFAZ ainda nao estiver configurada, o app tenta usar o Meu Danfe.
-6. Se nada retornar XML, o motorista ainda pode usar Importar XML manualmente.
+5. Se nada retornar XML, o motorista ainda pode usar Importar XML manualmente.
 
 Observacoes importantes da SEFAZ
 - A NF-e precisa estar autorizada para o CNPJ consultado.
